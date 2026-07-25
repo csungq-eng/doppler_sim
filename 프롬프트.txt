@@ -1,0 +1,9 @@
+나는 raytracing으로 생성된 채널에 doppler 효과를 반영하는 것을 시뮬레이션하려고 합니다. 
+첫번째 단계로, 기지국에서 (단말의 위치 candidate가 되는) grid들로 raytracing을 진행하였다고 가정하고, 가상의 raytracing 결과물을 만듭시다.
+일단은 정식으로 raytracing을 진행할 것은 아니기에 값은 random으로 생성합니다. 다음의 기준으로 생성해주세요.
+1. 기지국의 antenna 수는 64개, 단말의 antenna 수는 4개입니다.
+2. grid 수는 100개로 합니다. 확장 가능하도록 파라미터화 해주세요.
+3. raytracing 결과물은 time domain 결과물로써, 여러 path들의 channel impluse reponse를 표현하기 위해 다음의 구조체를 가집니다.
+3-1. path id, num of path, path 구조체
+3-2. path 구조체는 power, aoa, aod, tau를 가집니다.  
+

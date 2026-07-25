@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install numpy
+        run: pip install numpy
+
+      - name: Python tests
+        run: python -m unittest test_raytracing -v
+
+      - name: Generate raytracing binaries
+        run: |
+          python generate_raytracing.py --per-pair
+          python generate_raytracing.py
+
+      - name: Configure (CMake)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: C++ unit tests (+ loader vs Python binary)
+        run: ./build/unit_tests output_per_pair/raytracing_result.bin output/raytracing_result.bin
+
+      - name: Run Doppler PoC
+        run: ./build/poc_doppler --binary output_per_pair/raytracing_result.bin --speed-kmh 60 --direction-deg 45 --time-ms 1 --num-dominant 3
+
+      - name: Upload comparison result
+        uses: actions/upload-artifact@v4
+        with:
+          name: doppler-comparison
+          path: doppler_comparison.csv

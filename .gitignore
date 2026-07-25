@@ -1,0 +1,14 @@
+# 로컬 Claude 설정
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# 생성 결과물
+output/
+output_per_pair/
+doppler_comparison.csv
+
+# C++ 빌드
+build/
