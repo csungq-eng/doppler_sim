@@ -1,13 +1,14 @@
 """N sweep 결과(nmse_sweep.csv)를 곡선 그림(nmse_sweep.png)으로 그린다.
 
 실행:
-    python plot_sweep.py [csv_path] [png_path]
+    python plot_sweep.py [csv_path] [png_path] [subtitle]
 
 기본값: nmse_sweep.csv -> nmse_sweep.png
 요구 사항: matplotlib (pip install matplotlib)
 """
 
 import csv
+import math
 import sys
 
 import matplotlib
@@ -26,6 +27,7 @@ SURFACE = "#fcfcfb"
 def main() -> None:
     csv_path = sys.argv[1] if len(sys.argv) > 1 else "nmse_sweep.csv"
     png_path = sys.argv[2] if len(sys.argv) > 2 else "nmse_sweep.png"
+    subtitle = sys.argv[3] if len(sys.argv) > 3 else None
 
     n_vals, mean2_db, max2_db = [], [], []
     mean3_db = max3_db = None
@@ -57,17 +59,23 @@ def main() -> None:
     ax.plot(k_n, k_max, color=BLUE, linewidth=1.2, linestyle=":",
             marker="o", markersize=3.5, alpha=0.55,
             label="Method 2, worst grid")
-    ax.axhline(mean3_db, color=ORANGE, linewidth=2, linestyle="--",
-               label="Method 3 (post-FD LOS Doppler), mean")
+    # v = 0이면 방식 3 == 방식 1이라 NMSE가 -inf dB가 된다 -> 선 대신 주석
+    if math.isfinite(mean3_db):
+        ax.axhline(mean3_db, color=ORANGE, linewidth=2, linestyle="--",
+                   label="Method 3 (post-FD LOS Doppler), mean")
+    else:
+        ax.plot([], [], color=ORANGE, linewidth=2, linestyle="--",
+                label="Method 3: exact match (no Doppler)")
 
     # 끝점 직접 라벨
     for i in (0, len(k_n) - 1):
         ax.annotate(f"{k_mean[i]:.1f} dB", (k_n[i], k_mean[i]),
                     textcoords="offset points", xytext=(0, -14),
                     ha="center", fontsize=9, color=INK)
-    ax.annotate(f"{mean3_db:.1f} dB", (k_n[-1], mean3_db),
-                textcoords="offset points", xytext=(0, 6),
-                ha="center", fontsize=9, color=INK)
+    if math.isfinite(mean3_db):
+        ax.annotate(f"{mean3_db:.1f} dB", (k_n[-1], mean3_db),
+                    textcoords="offset points", xytext=(0, 6),
+                    ha="center", fontsize=9, color=INK)
     if exact_ns:
         ax.annotate(
             f"N = {', '.join(map(str, exact_ns))}: exact match "
@@ -79,8 +87,10 @@ def main() -> None:
 
     ax.set_xlabel("Number of dominant paths N", color=INK)
     ax.set_ylabel("NMSE vs Method 1 [dB]", color=INK)
-    ax.set_title("Method 2 NMSE vs N (reference: Method 1, per-path Doppler)",
-                 color=INK, fontsize=11)
+    title = "Method 2 NMSE vs N (reference: Method 1, per-path Doppler)"
+    if subtitle:
+        title += f"\n{subtitle}"
+    ax.set_title(title, color=INK, fontsize=11)
     ax.grid(True, color=GRID, linewidth=0.8)
     ax.tick_params(colors=MUTED)
     for spine in ax.spines.values():

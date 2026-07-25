@@ -37,11 +37,19 @@ jobs:
       - name: Run Doppler PoC
         run: ./build/poc_doppler --binary output_per_pair/raytracing_result.bin --speed-kmh 60 --direction-deg 45 --time-ms 1 --num-dominant 3
 
-      - name: Run N sweep (method 2)
-        run: ./build/poc_doppler --binary output_per_pair/raytracing_result.bin --speed-kmh 60 --direction-deg 45 --time-ms 1 --sweep-max 10
+      - name: Run N sweep (method 2) at 0/60/120 km/h
+        run: |
+          for v in 0 60 120; do
+            ./build/poc_doppler --binary output_per_pair/raytracing_result.bin \
+              --speed-kmh $v --direction-deg 45 --time-ms 1 --sweep-max 10 \
+              --out-csv nmse_sweep_v${v}.csv
+          done
 
-      - name: Plot sweep curve
-        run: python plot_sweep.py
+      - name: Plot sweep curves
+        run: |
+          for v in 0 60 120; do
+            python plot_sweep.py nmse_sweep_v${v}.csv nmse_sweep_v${v}.png "UE speed ${v} km/h"
+          done
 
       - name: Upload results
         uses: actions/upload-artifact@v4
@@ -49,5 +57,5 @@ jobs:
           name: doppler-results
           path: |
             doppler_comparison.csv
-            nmse_sweep.csv
-            nmse_sweep.png
+            nmse_sweep_v*.csv
+            nmse_sweep_v*.png
