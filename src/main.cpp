@@ -33,7 +33,8 @@ void print_usage(const char* prog) {
       "  --direction-deg <d>   단말 이동 방향 azimuth [도] (기본 45)\n"
       "  --time-ms <t>         채널 snapshot 시각 [ms] (기본 1)\n"
       "  --num-dominant <n>    방식 2의 dominant path 수 (기본 3)\n"
-      "  --out-csv <path>      grid별 NMSE 결과 CSV (기본 doppler_comparison.csv)\n",
+      "  --out-csv <path>      grid별 NMSE 결과 CSV (기본 doppler_comparison.csv)\n"
+      "  --sweep-max <n>       N = 1..n sweep 모드로 실행, nmse_sweep.csv 출력\n",
       prog);
 }
 
@@ -43,6 +44,7 @@ int main(int argc, char** argv) {
   std::string binary_path = "output_per_pair/raytracing_result.bin";
   std::string csv_path = "doppler_comparison.csv";
   double speed_kmh = 60.0;
+  uint32_t sweep_max = 0;
   sim::Params p;
 
   for (int i = 1; i < argc; ++i) {
@@ -59,6 +61,7 @@ int main(int argc, char** argv) {
     else if (!std::strcmp(argv[i], "--time-ms")) p.time_s = std::atof(next()) * 1e-3;
     else if (!std::strcmp(argv[i], "--num-dominant")) p.num_dominant = std::atoi(next());
     else if (!std::strcmp(argv[i], "--out-csv")) csv_path = next();
+    else if (!std::strcmp(argv[i], "--sweep-max")) sweep_max = std::atoi(next());
     else if (!std::strcmp(argv[i], "--help")) { print_usage(argv[0]); return 0; }
     else {
       std::fprintf(stderr, "알 수 없는 옵션: %s\n", argv[i]);
@@ -87,6 +90,43 @@ int main(int argc, char** argv) {
   std::printf("단말 이동성     : %.1f km/h, 방향 %.1f도, snapshot t = %.3f ms\n",
               speed_kmh, p.move_dir_deg, p.time_s * 1e3);
   std::printf("최대 doppler    : %.1f Hz\n", f_max);
+
+  // sweep 모드: N = 1..sweep_max에 대해 방식 2 NMSE 곡선을 뽑는다
+  if (sweep_max > 0) {
+    std::vector<double> sum2(sweep_max + 1, 0.0), max2(sweep_max + 1, 0.0);
+    double sum3 = 0.0, max3 = 0.0;
+    for (const rt::Grid& g : r.grids) {
+      sim::CMat h1 = sim::method1_per_path_doppler(r, g, p);
+      double n3 = sim::nmse(h1, sim::method3_post_fd_doppler(r, g, p));
+      sum3 += n3;
+      if (n3 > max3) max3 = n3;
+      for (uint32_t nd = 1; nd <= sweep_max; ++nd) {
+        p.num_dominant = nd;
+        double n2 = sim::nmse(h1, sim::method2_dominant_doppler(r, g, p));
+        sum2[nd] += n2;
+        if (n2 > max2[nd]) max2[nd] = n2;
+      }
+    }
+    size_t n = r.grids.size();
+    std::string sweep_csv =
+        csv_path == "doppler_comparison.csv" ? "nmse_sweep.csv" : csv_path;
+    std::ofstream csv(sweep_csv);
+    csv << "n_dominant,mean_nmse2,mean_nmse2_db,max_nmse2_db,"
+           "mean_nmse3_db,max_nmse3_db\n";
+    std::printf("\n   N   평균 NMSE 방식2[dB]   최대 NMSE 방식2[dB]\n");
+    for (uint32_t nd = 1; nd <= sweep_max; ++nd) {
+      csv << nd << ',' << sum2[nd] / n << ',' << to_db(sum2[nd] / n) << ','
+          << to_db(max2[nd]) << ',' << to_db(sum3 / n) << ','
+          << to_db(max3) << '\n';
+      std::printf("%4u   %19.2f   %19.2f\n", nd, to_db(sum2[nd] / n),
+                  to_db(max2[nd]));
+    }
+    std::printf("방식3  %19.2f   %19.2f  (참고)\n", to_db(sum3 / n),
+                to_db(max3));
+    std::printf("결과 저장: %s\n", sweep_csv.c_str());
+    return 0;
+  }
+
   std::printf("방식 2 dominant : N = %u\n\n", p.num_dominant);
 
   std::ofstream csv(csv_path);

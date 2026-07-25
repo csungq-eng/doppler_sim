@@ -14,8 +14,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install numpy
-        run: pip install numpy
+      - name: Install python deps
+        run: pip install numpy matplotlib
 
       - name: Python tests
         run: python -m unittest test_raytracing -v
@@ -37,8 +37,17 @@ jobs:
       - name: Run Doppler PoC
         run: ./build/poc_doppler --binary output_per_pair/raytracing_result.bin --speed-kmh 60 --direction-deg 45 --time-ms 1 --num-dominant 3
 
-      - name: Upload comparison result
+      - name: Run N sweep (method 2)
+        run: ./build/poc_doppler --binary output_per_pair/raytracing_result.bin --speed-kmh 60 --direction-deg 45 --time-ms 1 --sweep-max 10
+
+      - name: Plot sweep curve
+        run: python plot_sweep.py
+
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: doppler-comparison
-          path: doppler_comparison.csv
+          name: doppler-results
+          path: |
+            doppler_comparison.csv
+            nmse_sweep.csv
+            nmse_sweep.png

@@ -203,8 +203,10 @@ cmake --build build -j
 
 옵션: `--speed-kmh`(기본 60) `--direction-deg`(기본 45) `--time-ms`(기본 1)
 `--num-dominant`(기본 3) `--out-csv`(기본 doppler_comparison.csv)
+`--sweep-max <n>`(N=1..n sweep 모드, `nmse_sweep.csv` 출력 → `python plot_sweep.py`로 곡선 생성)
 
 결과는 콘솔 요약(처음 10개 grid + 평균/최대)과 grid별 CSV로 출력된다.
+**전체 실행 방법은 [docs/USAGE.md](docs/USAGE.md) 참조** (CI 실행·artifact 다운로드 포함).
 
 ## CI (GitHub Actions)
 
