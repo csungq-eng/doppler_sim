@@ -37,32 +37,50 @@ def main() -> None:
             mean3_db = float(row["mean_nmse3_db"])
             max3_db = float(row["max_nmse3_db"])
 
+    # N이 전체 path 수에 도달하면 방식 2 == 방식 1이라 NMSE가 기계 정밀도
+    # 수준(-300 dB대)으로 떨어져 축을 망가뜨린다. 이런 점은 곡선에서 제외하고
+    # 텍스트로 별도 표기한다.
+    EXACT_DB = -100.0
+    exact_ns = [n for n, v in zip(n_vals, mean2_db) if v < EXACT_DB]
+    kept = [(n, m, x) for n, m, x in zip(n_vals, mean2_db, max2_db)
+            if m >= EXACT_DB]
+    k_n = [t[0] for t in kept]
+    k_mean = [t[1] for t in kept]
+    k_max = [t[2] for t in kept]
+
     fig, ax = plt.subplots(figsize=(8, 5), dpi=150)
     fig.patch.set_facecolor(SURFACE)
     ax.set_facecolor(SURFACE)
 
-    ax.plot(n_vals, mean2_db, color=BLUE, linewidth=2, marker="o",
+    ax.plot(k_n, k_mean, color=BLUE, linewidth=2, marker="o",
             markersize=5, label="Method 2 (dominant-N only), mean")
-    ax.plot(n_vals, max2_db, color=BLUE, linewidth=1.2, linestyle=":",
+    ax.plot(k_n, k_max, color=BLUE, linewidth=1.2, linestyle=":",
             marker="o", markersize=3.5, alpha=0.55,
             label="Method 2, worst grid")
     ax.axhline(mean3_db, color=ORANGE, linewidth=2, linestyle="--",
                label="Method 3 (post-FD LOS Doppler), mean")
 
     # 끝점 직접 라벨
-    for i in (0, len(n_vals) - 1):
-        ax.annotate(f"{mean2_db[i]:.1f} dB", (n_vals[i], mean2_db[i]),
+    for i in (0, len(k_n) - 1):
+        ax.annotate(f"{k_mean[i]:.1f} dB", (k_n[i], k_mean[i]),
                     textcoords="offset points", xytext=(0, -14),
                     ha="center", fontsize=9, color=INK)
-    ax.annotate(f"{mean3_db:.1f} dB", (n_vals[-1], mean3_db),
+    ax.annotate(f"{mean3_db:.1f} dB", (k_n[-1], mean3_db),
                 textcoords="offset points", xytext=(0, 6),
                 ha="center", fontsize=9, color=INK)
+    if exact_ns:
+        ax.annotate(
+            f"N = {', '.join(map(str, exact_ns))}: exact match "
+            "(all paths included)",
+            (0.55, 0.04), xycoords="axes fraction", ha="center",
+            fontsize=9, color=MUTED)
+
+    ax.set_xticks(n_vals)
 
     ax.set_xlabel("Number of dominant paths N", color=INK)
     ax.set_ylabel("NMSE vs Method 1 [dB]", color=INK)
     ax.set_title("Method 2 NMSE vs N (reference: Method 1, per-path Doppler)",
                  color=INK, fontsize=11)
-    ax.set_xticks(n_vals)
     ax.grid(True, color=GRID, linewidth=0.8)
     ax.tick_params(colors=MUTED)
     for spine in ax.spines.values():
