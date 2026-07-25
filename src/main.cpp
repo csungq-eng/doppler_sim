@@ -3,7 +3,7 @@
 // binary 레이트레이싱 결과를 읽어, grid마다 세 가지 방식으로
 // 주파수 도메인 채널 행렬(64 x 4 x 3276)을 생성하고 NMSE로 비교한다.
 //   방식 1 (기준): path별 doppler 적용 후 주파수 변환
-//   방식 2: dominant N개 path에만 doppler 적용
+//   방식 2: dominant N개 path만으로 채널 구성 + doppler 적용
 //   방식 3: 주파수 변환 후 LOS 방향 단일 doppler 적용
 //
 // 사용 예:

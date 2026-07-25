@@ -6,7 +6,8 @@
 //                        * exp(+j*2pi*fd_p*t)                      .. doppler 회전
 //                        * exp(-j*2pi*f_k*tau_p)                   .. 주파수 응답
 //     fd_p = (v/lambda) * cos(aoa_p - 이동방향),  f_k = (k - Nsc/2) * SCS
-//   방식 2: dominant N개 path에만 doppler 적용 (나머지 path는 fd = 0)
+//   방식 2: power 상위 dominant N개 path만으로 채널 구성(나머지 제외),
+//           포함된 path에는 방식 1과 동일하게 doppler 적용
 //   방식 3: doppler 없이 주파수 채널 변환 후, LOS 방향(기지국->단말 상대
 //           벡터를 AoA로 가정) 단일 doppler로 행렬 전체를 회전
 #pragma once

@@ -181,7 +181,7 @@ subcarrier 주파수: `f_k = (k − N_SC/2)·SCS` (baseband, 센터 기준)
 | 방식 | 내용 |
 |---|---|
 | **1 (기준)** | 각 path에 Doppler 적용 후 주파수 변환: `H[b][u][k] = Σ_p √P_p · e^{−j2πf_c·τ_p} · e^{+j2πf_d,p·t} · e^{−j2πf_k·τ_p}` |
-| **2** | power 기준 dominant N개 path에만 Doppler 적용 (나머지는 f_d = 0), 이후 동일하게 주파수 변환 |
+| **2** | power 기준 dominant N개 path**만으로** 채널 구성 (나머지 path는 제외), 포함된 path에는 방식 1과 동일하게 Doppler 적용 |
 | **3** | Doppler 없이 주파수 변환 후, LOS 방향 단일 Doppler로 행렬 전체 위상 회전. path 정보가 없다고 가정하므로 기지국·grid 위치에서 상대 벡터의 azimuth를 AoA로 사용: `H₃ = H(f_d=0) · e^{+j2πf_LOS·t}` |
 
 방식 3을 위해 기지국 위치(기본 원점)와 grid 배치(기본 10×10, 간격 10 m,
@@ -217,7 +217,7 @@ PoC 실행 → `doppler_comparison.csv` artifact 업로드.
 
 - 방식 1이 점화식 최적화 없이 직접 계산한 수식 참값과 일치
 - Doppler 수식: 이동 방향과 같은/반대/수직 AoA에서 +f_max/−f_max/0
-- N ≥ path 수이면 방식 2 == 방식 1, N = 0이면 Doppler 없는 채널
+- N ≥ path 수이면 방식 2 == 방식 1, N = 1이면 최강 path만의 채널, N = 0이면 채널 = 0
 - LOS 단일 path이면 방식 3 == 방식 1
 - t = 0이면 세 방식 모두 동일
 - 로더: Python이 생성한 binary의 mode/안테나 수/grid 수/전력 합 검증

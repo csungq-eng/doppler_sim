@@ -36,16 +36,18 @@ void accumulate_pair(CMat& h, size_t offset, const std::vector<rt::Path>& paths,
   }
 }
 
-// doppler 주파수를 path마다 뽑는 함수를 받아 전체 채널 행렬을 생성한다.
-template <typename FdSelector>
+// pair의 path 집합에서 (사용할 path, doppler 주파수) 목록을 뽑는 함수를
+// 받아 전체 채널 행렬을 생성한다.
+template <typename PathSelector>
 CMat build_channel(const rt::Result& r, const rt::Grid& g, const Params& p,
-                   FdSelector select_fd) {
+                   PathSelector select) {
   CMat h(static_cast<size_t>(r.num_bs_ant) * r.num_ue_ant * p.num_sc,
          {0.0, 0.0});
   for (uint32_t b = 0; b < r.num_bs_ant; ++b) {
     for (uint32_t u = 0; u < r.num_ue_ant; ++u) {
-      const std::vector<rt::Path>& paths = r.paths_for(g, b, u);
-      std::vector<double> fd = select_fd(paths);
+      std::vector<rt::Path> paths;
+      std::vector<double> fd;
+      select(r.paths_for(g, b, u), &paths, &fd);
       size_t offset =
           (static_cast<size_t>(b) * r.num_ue_ant + u) * p.num_sc;
       accumulate_pair(h, offset, paths, fd, p);
@@ -54,19 +56,16 @@ CMat build_channel(const rt::Result& r, const rt::Grid& g, const Params& p,
   return h;
 }
 
-// power 기준 상위 num_dominant개 path의 index 집합 여부를 반환
-std::vector<bool> dominant_mask(const std::vector<rt::Path>& paths,
-                                uint32_t num_dominant) {
+// power 기준 상위 num_dominant개 path의 index (power 내림차순)
+std::vector<size_t> dominant_indices(const std::vector<rt::Path>& paths,
+                                     uint32_t num_dominant) {
   std::vector<size_t> idx(paths.size());
   std::iota(idx.begin(), idx.end(), 0);
   std::sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
     return paths[a].power > paths[b].power;
   });
-  std::vector<bool> mask(paths.size(), false);
-  for (size_t i = 0; i < idx.size() && i < num_dominant; ++i) {
-    mask[idx[i]] = true;
-  }
-  return mask;
+  if (idx.size() > num_dominant) idx.resize(num_dominant);
+  return idx;
 }
 
 }  // namespace
@@ -90,32 +89,38 @@ double los_angle_deg(uint32_t grid_id, const Params& p) {
 
 CMat method1_per_path_doppler(const rt::Result& r, const rt::Grid& g,
                               const Params& p) {
-  return build_channel(r, g, p, [&](const std::vector<rt::Path>& paths) {
-    std::vector<double> fd(paths.size());
-    for (size_t i = 0; i < paths.size(); ++i) {
-      fd[i] = doppler_shift_hz(paths[i].aoa_deg, p);
+  return build_channel(r, g, p, [&](const std::vector<rt::Path>& in,
+                                    std::vector<rt::Path>* paths,
+                                    std::vector<double>* fd) {
+    *paths = in;
+    fd->resize(in.size());
+    for (size_t i = 0; i < in.size(); ++i) {
+      (*fd)[i] = doppler_shift_hz(in[i].aoa_deg, p);
     }
-    return fd;
   });
 }
 
 CMat method2_dominant_doppler(const rt::Result& r, const rt::Grid& g,
                               const Params& p) {
-  return build_channel(r, g, p, [&](const std::vector<rt::Path>& paths) {
-    std::vector<bool> mask = dominant_mask(paths, p.num_dominant);
-    std::vector<double> fd(paths.size(), 0.0);
-    for (size_t i = 0; i < paths.size(); ++i) {
-      if (mask[i]) fd[i] = doppler_shift_hz(paths[i].aoa_deg, p);
+  // dominant N개 path만 채널에 포함 (나머지 path는 제외), 각각 doppler 적용
+  return build_channel(r, g, p, [&](const std::vector<rt::Path>& in,
+                                    std::vector<rt::Path>* paths,
+                                    std::vector<double>* fd) {
+    for (size_t i : dominant_indices(in, p.num_dominant)) {
+      paths->push_back(in[i]);
+      fd->push_back(doppler_shift_hz(in[i].aoa_deg, p));
     }
-    return fd;
   });
 }
 
 CMat method3_post_fd_doppler(const rt::Result& r, const rt::Grid& g,
                              const Params& p) {
   // doppler 없이 주파수 채널 변환
-  CMat h = build_channel(r, g, p, [](const std::vector<rt::Path>& paths) {
-    return std::vector<double>(paths.size(), 0.0);
+  CMat h = build_channel(r, g, p, [](const std::vector<rt::Path>& in,
+                                     std::vector<rt::Path>* paths,
+                                     std::vector<double>* fd) {
+    *paths = in;
+    fd->assign(in.size(), 0.0);
   });
   // LOS 방향(기지국->grid 상대 벡터) 단일 doppler로 행렬 전체 회전
   double fd = doppler_shift_hz(los_angle_deg(g.grid_id, p), p);

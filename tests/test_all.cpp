@@ -106,20 +106,28 @@ void test_method2_equals_method1_when_n_large() {
   CHECK(sim::nmse(h1, h2) < 1e-24, "N >= path 수이면 방식 2 == 방식 1");
 }
 
-void test_method2_zero_dominant_equals_no_doppler() {
-  std::vector<rt::Path> paths = {
-      {0, 0.6, 45.0, 0.0, 300e-9},
-      {1, 0.4, -45.0, 0.0, 700e-9},
-  };
-  rt::Result r = make_single_pair_result(paths);
+void test_method2_keeps_only_dominant_paths() {
+  // 강한 path 1개 + 약한 path 1개. N = 1이면 강한 path만으로 만든
+  // 채널(방식 1)과 정확히 같아야 한다 (약한 path는 완전히 제외).
+  rt::Path strong = {0, 0.9, 45.0, 0.0, 300e-9};
+  rt::Path weak = {1, 0.1, -45.0, 0.0, 700e-9};
+  rt::Result r_both = make_single_pair_result({strong, weak});
+  rt::Result r_strong_only = make_single_pair_result({strong});
   sim::Params p = small_params();
-  p.num_dominant = 0;
+  p.num_dominant = 1;
 
-  sim::CMat h2 = sim::method2_dominant_doppler(r, r.grids[0], p);
-  sim::Params p0 = p;
-  p0.speed_mps = 0.0;  // doppler 자체가 없는 채널
-  sim::CMat h_static = sim::method1_per_path_doppler(r, r.grids[0], p0);
-  CHECK(sim::nmse(h_static, h2) < 1e-24, "N = 0이면 방식 2는 doppler 없는 채널");
+  sim::CMat h2 = sim::method2_dominant_doppler(r_both, r_both.grids[0], p);
+  sim::CMat h_ref =
+      sim::method1_per_path_doppler(r_strong_only, r_strong_only.grids[0], p);
+  CHECK(sim::nmse(h_ref, h2) < 1e-24,
+        "방식 2는 dominant path만 포함 (나머지 제외)");
+
+  // N = 0이면 채널이 완전히 비어야 한다
+  p.num_dominant = 0;
+  sim::CMat h_empty = sim::method2_dominant_doppler(r_both, r_both.grids[0], p);
+  double energy = 0.0;
+  for (const std::complex<double>& v : h_empty) energy += std::norm(v);
+  CHECK(energy == 0.0, "N = 0이면 방식 2 채널은 0");
 }
 
 void test_method3_equals_method1_for_single_los_path() {
@@ -184,7 +192,7 @@ int main(int argc, char** argv) {
   test_method1_against_direct_formula();
   test_doppler_shift_formula();
   test_method2_equals_method1_when_n_large();
-  test_method2_zero_dominant_equals_no_doppler();
+  test_method2_keeps_only_dominant_paths();
   test_method3_equals_method1_for_single_los_path();
   test_all_methods_equal_at_t0();
 
