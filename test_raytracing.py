@@ -21,7 +21,9 @@ from channel_sim import (
     azimuth_deg,
     generate_raytracing_result,
     grid_position_m,
+    is_los,
     los_aoa_deg,
+    segment_hits_rect,
     save_result,
     load_result,
 )
@@ -273,6 +275,16 @@ class GeometricTestMixin:
         """grid의 대표 path 집합 (per-pair면 pair (0,0))."""
         return g.pairs[0].paths if self.per_antenna_pair else g.paths
 
+    def reflection_paths(self, g):
+        """LOS를 제외한 반사 path 목록."""
+        paths = self.reference_paths(g)
+        return paths[1:] if is_los(g.grid_id, self.config) else paths
+
+    def los_distance(self, g):
+        bx, by = self.config.bs_position_m
+        gx, gy = grid_position_m(g.grid_id, self.config)
+        return math.hypot(gx - bx, gy - by)
+
     def geometry_tolerance(self):
         """per-pair 모드에서 element 위치 차이로 허용되는 각도/지연 오차."""
         if not self.per_antenna_pair:
@@ -285,32 +297,88 @@ class GeometricTestMixin:
             2 * half_aperture / SPEED_OF_LIGHT * 2
 
     def test_tau_sorted_and_in_range(self):
-        """tau는 오름차순이고 LOS 지연이 기지국-grid 거리와 일치한다."""
+        """tau는 오름차순이고, LOS grid의 첫 path 지연은 기지국-grid 거리와 일치한다."""
         _, tau_tol = self.geometry_tolerance()
-        bx, by = self.config.bs_position_m
         for g in self.loaded.grids:
-            gx, gy = grid_position_m(g.grid_id, self.config)
-            d_los = math.hypot(gx - bx, gy - by)
+            tau_los = self.los_distance(g) / SPEED_OF_LIGHT
             for paths in ([p.paths for p in g.pairs]
                           if self.per_antenna_pair else [g.paths]):
                 taus = [p.tau_s for p in paths]
                 # element 위치 차이만큼의 역전만 허용
                 for a, b in zip(taus, taus[1:]):
                     self.assertLessEqual(a, b + tau_tol)
-                self.assertAlmostEqual(taus[0], d_los / SPEED_OF_LIGHT,
-                                       delta=tau_tol + 1e-15)
+                if is_los(g.grid_id, self.config):
+                    self.assertAlmostEqual(taus[0], tau_los, delta=tau_tol + 1e-15)
+                else:
+                    self.assertGreater(taus[0], tau_los)  # NLOS: 반사 path뿐
 
     def test_los_is_first_and_strongest(self):
-        """첫 path가 LOS이고 (반사 손실 > 0이므로) 항상 가장 강하다."""
+        """LOS grid에서는 첫 path가 LOS이고 (반사 손실 > 0이므로) 가장 강하다."""
         for g in self.loaded.grids:
+            if not is_los(g.grid_id, self.config):
+                continue
             paths = self.reference_paths(g)
             self.assertEqual(paths[0].power, max(p.power for p in paths))
 
+    def test_blockage_creates_nlos_grids(self):
+        """차폐 블록 때문에 LOS grid와 NLOS grid가 모두 존재하고, 블록이 없으면 전부 LOS다."""
+        n_los = sum(is_los(g.grid_id, self.config) for g in self.loaded.grids)
+        self.assertGreater(n_los, 0)
+        self.assertLess(n_los, len(self.loaded.grids))
+        open_cfg = self.make_config(obstacles_m=())
+        self.assertTrue(all(is_los(i, open_cfg) for i in range(open_cfg.num_grids)))
+
+    def test_no_grid_inside_obstacle(self):
+        """grid 위치가 차폐 블록 내부에 있으면 안 된다 (건물 안의 단말)."""
+        for g in self.loaded.grids:
+            gx, gy = grid_position_m(g.grid_id, self.config)
+            for (x0, y0), (x1, y1) in self.config.obstacles_m:
+                inside = (min(x0, x1) <= gx <= max(x0, x1)
+                          and min(y0, y1) <= gy <= max(y0, y1))
+                self.assertFalse(inside, f"grid {g.grid_id}가 블록 안에 있음")
+
+    def test_nlos_grids_are_clustered(self):
+        """블록 뒤 NLOS grid는 뭉쳐 있다: 모든 NLOS grid가 NLOS 이웃(상하좌우)을 갖는다."""
+        cols = self.config.grid_cols
+        nlos = {g.grid_id for g in self.loaded.grids
+                if not is_los(g.grid_id, self.config)}
+        for i in nlos:
+            r, c = divmod(i, cols)
+            neighbors = {(r + dr) * cols + (c + dc)
+                         for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                         if 0 <= r + dr and 0 <= c + dc < cols}
+            self.assertTrue(neighbors & nlos, f"grid {i}가 고립된 NLOS")
+
+    def test_reflection_legs_not_blocked(self):
+        """채택된 반사 path의 두 구간(기지국→산란체, 산란체→grid)이 블록을 지나지 않는다.
+
+        산란체 위치는 저장되지 않으므로 AoD·AoA·tau로 역산한다.
+        """
+        bx, by = self.config.bs_position_m
+        for g in self.loaded.grids:
+            gx, gy = grid_position_m(g.grid_id, self.config)
+            for p in self.reflection_paths(g):
+                # 기지국에서 AoD 방향으로 d1, grid에서 AoA 방향으로 d2 가면 같은 점
+                total = p.tau_s * SPEED_OF_LIGHT
+                ux, uy = math.cos(math.radians(p.aod_deg)), math.sin(math.radians(p.aod_deg))
+                vx, vy = math.cos(math.radians(p.aoa_deg)), math.sin(math.radians(p.aoa_deg))
+                # (bx + d1 ux, by + d1 uy) == (gx + d2 vx, gy + d2 vy), d1 + d2 = total
+                # → d1 (u + v) = (g - b) + total v ; 2식 1미지수라 최소자승으로 푼다
+                ax, ay = ux + vx, uy + vy
+                b0, b1 = gx - bx + total * vx, gy - by + total * vy
+                d1 = (ax * b0 + ay * b1) / (ax * ax + ay * ay)
+                sx, sy = bx + d1 * ux, by + d1 * uy
+                for rect in self.config.obstacles_m:
+                    self.assertFalse(segment_hits_rect((bx, by), (sx, sy), rect))
+                    self.assertFalse(segment_hits_rect((sx, sy), (gx, gy), rect))
+
     def test_los_angles_match_geometry(self):
-        """LOS의 AoA는 단말→기지국, AoD는 기지국→단말 방위각이다."""
+        """LOS grid에서 LOS의 AoA는 단말→기지국, AoD는 기지국→단말 방위각이다."""
         ang_tol, _ = self.geometry_tolerance()
         bx, by = self.config.bs_position_m
         for g in self.loaded.grids:
+            if not is_los(g.grid_id, self.config):
+                continue
             gx, gy = grid_position_m(g.grid_id, self.config)
             los = self.reference_paths(g)[0]
             self.assertAlmostEqual(los.aoa_deg, los_aoa_deg(g.grid_id, self.config),
@@ -323,16 +391,17 @@ class GeometricTestMixin:
                                    delta=ang_tol)
 
     def test_nlos_delay_exceeds_los(self):
-        """반사 path의 지연은 삼각 부등식에 의해 LOS보다 크다."""
+        """반사 path의 지연은 삼각 부등식에 의해 LOS 거리/c보다 크다 (element 오차 허용)."""
+        _, tau_tol = self.geometry_tolerance()
         for g in self.loaded.grids:
-            paths = self.reference_paths(g)
-            for p in paths[1:]:
-                self.assertGreater(p.tau_s, paths[0].tau_s)
+            tau_los = self.los_distance(g) / SPEED_OF_LIGHT
+            for p in self.reflection_paths(g):
+                self.assertGreater(p.tau_s + tau_tol, tau_los)
 
     def test_neighbor_grids_share_environment(self):
         """산란체가 공유되므로 인접 grid는 같은 AoD(기지국→산란체)를 갖는 path가 있다."""
         aods = [
-            {round(p.aod_deg, 6) for p in self.reference_paths(g)[1:]}
+            {round(p.aod_deg, 6) for p in self.reflection_paths(g)}
             for g in self.loaded.grids
         ]
         shared = sum(1 for a, b in zip(aods, aods[1:]) if a & b)
@@ -350,10 +419,25 @@ class GeometricPerGridModeTest(GeometricTestMixin, RaytracingTestBase,
                                unittest.TestCase):
     """geometric 시나리오, per-grid 모드."""
 
+    def test_segment_rect_intersection(self):
+        """선분-사각형 교차 판정 (차폐 계산의 기초)."""
+        rect = ((10.0, 10.0), (20.0, 20.0))
+        self.assertTrue(segment_hits_rect((0, 0), (30, 30), rect))    # 대각선 관통
+        self.assertTrue(segment_hits_rect((0, 15), (30, 15), rect))   # 수평 관통
+        self.assertTrue(segment_hits_rect((15, 0), (15, 30), rect))   # 수직 관통
+        self.assertTrue(segment_hits_rect((15, 15), (40, 40), rect))  # 내부에서 시작
+        self.assertFalse(segment_hits_rect((0, 0), (30, 5), rect))    # 아래로 지나감
+        self.assertFalse(segment_hits_rect((0, 0), (5, 5), rect))     # 닿기 전에 끝남
+        self.assertFalse(segment_hits_rect((25, 0), (25, 30), rect))  # 옆으로 지나감
+        # 좌표 순서가 뒤집힌 사각형도 동일
+        self.assertTrue(segment_hits_rect((0, 0), (30, 30), ((20, 20), (10, 10))))
+
 
 class GeometricPerAntennaPairModeTest(GeometricTestMixin, PerPairTestMixin,
                                       RaytracingTestBase, unittest.TestCase):
     """geometric 시나리오, per-antenna-pair 모드."""
+
+    num_grids = 8  # grid 0~4는 블록 뒤 NLOS라 LOS grid도 포함되도록 8개 사용
 
     def test_pairs_share_paths_with_element_offsets(self):
         """pair마다 같은 path 집합(수/id/전력)을 갖고 tau만 element 위치만큼 다르다."""

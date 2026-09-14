@@ -26,15 +26,19 @@
 | 시나리오 | 내용 |
 |---|---|
 | **random** (기본) | 분포 파라미터에서 랜덤 생성. 기하 정보가 없어 AoA가 전방위 uniform이고 per-pair 모드에서 pair마다 독립. 방식 3(LOS 단일 Doppler)에 가장 불리한 데이터 |
-| **geometric** | 기지국·grid·산란체 위치에서 LOS + 단일 반사 path를 기하적으로 계산 (**실제 레이트레이싱 결과 모사**). LOS AoA가 실제 기지국 방향과 일치하고 전력은 LOS에 집중(K-factor 평균 ≈ 8 dB), 산란체를 모든 grid가 공유해 인접 grid 채널이 상관. per-pair 모드에서는 안테나 element별 정확한 경로 길이로 tau를 계산해 배열 응답 위상이 tau에 담긴다 |
+| **geometric** | 기지국·grid·산란체·차폐 블록 위치에서 LOS + 단일 반사 path를 기하적으로 계산 (**실제 레이트레이싱 결과 모사**). 블록 뒤 grid는 LOS가 없는 NLOS grid가 되고(기본 설정에서 100개 중 40개, 뭉쳐서 분포), LOS grid에서는 LOS AoA가 실제 기지국 방향과 일치하며 전력이 LOS에 집중(K-factor 평균 ≈ 5 dB). 산란체를 모든 grid가 공유해 인접 grid 채널이 상관. per-pair 모드에서는 안테나 element별 정확한 경로 길이로 tau를 계산해 배열 응답 위상이 tau에 담긴다 |
 
 geometric 시나리오의 path 계산 (좌표 [m], 2D azimuth 평면, c = 광속):
 
-- LOS: `tau = d/c`, `AoD = az(grid − BS)`, `AoA = az(BS − grid)`, `power ∝ 1/d²`
+- LOS: `tau = d/c`, `AoD = az(grid − BS)`, `AoA = az(BS − grid)`, `power ∝ 1/d²`.
+  기지국→grid 직선이 차폐 블록(`obstacles_m`, 축 정렬 사각형)을 지나면 LOS path 없음
 - 반사(산란체 s): `tau = (|s−BS| + |grid−s|)/c`, `AoD = az(s − BS)`, `AoA = az(s − grid)`,
-  `power ∝ 10^(−반사손실/10) / (|s−BS| + |grid−s|)²`
-- grid마다 산란체가 `scatterer_visibility` 확률로 보이며, 보이는 것 중 강한 순으로
-  최대 `max_paths − 1`개 채택 → 집합 전력 합 = 1로 정규화
+  `power ∝ 10^(−반사손실/10) / (|s−BS| + |grid−s|)²`.
+  기지국→s 또는 s→grid 구간이 블록을 지나면 제거
+- 남은 산란체는 추가로 `scatterer_visibility` 확률의 랜덤 차폐를 거치고, 강한 순으로
+  최대 `max_paths`(LOS가 있으면 `max_paths − 1`)개 채택 → 집합 전력 합 = 1로 정규화
+- LOS 여부는 `channel_sim.is_los(grid_id, config)`로 기하에서 다시 계산할 수 있다
+  (binary에는 저장되지 않음)
 
 **각도 규약**: 방위각은 +x축 기준 반시계 [도]. AoA는 단말에서 전파가 *들어오는 쪽*을
 가리키는 방향(LOS면 단말→기지국)이라, 단말이 AoA 방향으로 이동하면 Doppler가 양(+)이다.
@@ -48,6 +52,8 @@ PoC_Channel/
 │  ├─ config.py               #   SimulationConfig (모든 파라미터)
 │  └─ raytracing.py           #   구조체 정의 + random/geometric 생성 + 저장/로드
 ├─ generate_raytracing.py     # [Python] 실행 스크립트
+├─ plot_sweep.py              # [Python] N sweep 곡선 그림
+├─ summarize_los_split.py     # [Python] sweep 결과를 LOS/NLOS grid로 나눈 표
 ├─ test_raytracing.py         # [Python] binary 파일 검증 테스트 (2 시나리오 x 2 모드)
 ├─ src/                       # [C++] Doppler PoC
 │  ├─ rt_loader.hpp/.cpp      #   binary 로더 (v2, 두 모드)
@@ -84,8 +90,8 @@ python generate_raytracing.py --per-pair --out my_output
 python -m unittest test_raytracing -v
 ```
 
-geometric 시나리오는 요약에 K-factor(LOS/NLOS 전력비) 분포와 LOS AoA가 기하
-LOS 방향과 일치하는지도 출력한다.
+geometric 시나리오는 요약에 LOS/NLOS grid 수, LOS grid의 K-factor(LOS/NLOS
+전력비) 분포, LOS AoA가 기하 LOS 방향과 일치하는지도 출력한다.
 
 요구 사항: Python 3.x, numpy
 
@@ -120,7 +126,7 @@ Path (단일 전파 경로)
 | `num_ue_antennas` | 4 | 단말 안테나 수 |
 | `num_grids` | 100 | grid 수 (확장 가능) |
 | `per_antenna_pair` | False | True면 안테나 pair별로 path 집합 생성 |
-| `min_paths` / `max_paths` | 3 / 10 | path 집합별 path 수 범위 |
+| `min_paths` / `max_paths` | 3 / 16 | path 집합별 path 수 범위 |
 | `min/max_first_path_delay_s` | 0.1–1.0 µs | 첫 path 지연 범위 (30–300 m 거리 상당) |
 | `rms_delay_spread_s` | 100 ns | 초과 지연 지수분포의 평균 |
 | `power_decay_constant_s` | 150 ns | 지연에 따른 전력 감쇠 시정수 |
@@ -136,10 +142,11 @@ geometric 전용 (좌표 [m]):
 |---|---|---|
 | `carrier_frequency_hz` | 3.5e9 | 파장 계산용 (배열 간격) |
 | `bs_position_m` / `grid_origin_m` / `grid_spacing_m` / `grid_cols` | (0,0) / (50,−45) / 10 / 10 | 기지국·grid 배치. **C++ `sim::Params` 기본값과 동일해야 함** |
-| `num_scatterers` | 15 | 환경에 고정 배치되는 산란체 수 (기지국 섹터 안) |
+| `num_scatterers` | 30 | 환경에 고정 배치되는 산란체 수 (기지국 섹터 안, 블록 밖) |
 | `scatterer_x_range_m` / `scatterer_y_range_m` | (20,200) / (−120,120) | 산란체 배치 영역 |
 | `reflection_loss_db_range` | (6, 20) | 산란체별 반사 손실 (uniform, 고정) |
-| `scatterer_visibility` | 0.6 | grid에서 산란체가 차폐되지 않을 확률 |
+| `scatterer_visibility` | 0.6 | 블록 차폐 외에 추가로 산란체가 보일 확률 |
+| `obstacles_m` | 블록 2개: (30,8)–(42,26), (25,−30)–(35,−16) | 차폐 블록(건물) 사각형 목록. grid가 블록 안에 있으면 안 됨 |
 | `element_spacing_wavelengths` | 0.5 | ULA element 간격 (λ 단위), per-pair 모드에서 사용 |
 
 `SimulationConfig(num_grids=1000, per_antenna_pair=True, scenario="geometric")`
@@ -207,9 +214,12 @@ geometric 전용 (좌표 [m]):
   header mode와 config 불일치 시 로드 거부
 - **확장성/재현성**: num_grids 변경 동작, 같은 seed → 같은 결과
 - **오류 처리**: magic 손상·파일 잘림·알 수 없는 scenario 거부
-- **geometric 전용**: LOS tau = 거리/c, LOS AoA/AoD가 기하 방향과 일치(서로 반대),
-  LOS가 항상 최강, 반사 path 지연 > LOS(삼각 부등식), 인접 grid가 산란체 공유,
-  per-pair에서 pair 간 path 수/id/전력 동일·tau는 element 위치만큼만 차이
+- **geometric 전용**: LOS grid에서 LOS tau = 거리/c, LOS AoA/AoD가 기하 방향과
+  일치(서로 반대), LOS가 최강; NLOS grid는 첫 path 지연 > 거리/c; 반사 path 지연 >
+  LOS(삼각 부등식); 채택된 반사 path의 두 구간이 블록을 지나지 않음(AoA/AoD/tau로
+  산란체 위치 역산); LOS·NLOS grid가 모두 존재하고 NLOS grid가 뭉쳐 있음; grid가
+  블록 안에 없음; 블록이 없으면 전부 LOS; 인접 grid가 산란체 공유; per-pair에서
+  pair 간 path 수/id/전력 동일·tau는 element 위치만큼만 차이; 선분–사각형 교차 판정
 
 ---
 
@@ -260,8 +270,9 @@ cmake --build build -j
 
 옵션: `--speed-kmh`(기본 60) `--direction-deg`(기본 45) `--time-ms`(기본 1)
 `--num-dominant`(기본 3) `--out-csv`(기본 doppler_comparison.csv)
-`--sweep-max <n>`(N=1..n sweep 모드, `nmse_sweep.csv` 출력(`--out-csv`로 이름 지정 가능)
-→ `python plot_sweep.py [csv] [png] [부제목]`으로 곡선 생성)
+`--sweep-max <n>`(N=1..n sweep 모드, 요약 `nmse_sweep.csv` + grid별 `nmse_sweep_grid.csv`
+출력(`--out-csv`로 이름 지정 가능) → `python plot_sweep.py [csv] [png] [부제목]`으로 곡선
+생성, `python summarize_los_split.py <grid csv> <config.json>`으로 LOS/NLOS grid 분리 표 생성)
 
 결과는 콘솔 요약(처음 10개 grid + 평균/최대)과 grid별 CSV로 출력된다.
 **전체 실행 방법은 [docs/USAGE.md](docs/USAGE.md) 참조** (CI 실행·artifact 다운로드 포함).
@@ -275,7 +286,8 @@ C++ 단위 테스트(Python이 만든 binary를 C++ 로더로 읽는 cross-langu
 geometric LOS AoA 규약 일치 검증 포함) → PoC 실행(random `doppler_comparison.csv`,
 geometric `doppler_comparison_geo.csv`) → 속도 0/60/120 km/h N sweep 및 곡선
 생성(random `nmse_sweep_v*.csv/png`, geometric `nmse_sweep_geo_v*.csv/png`) →
-결과 전체를 `doppler-results` artifact로 업로드.
+geometric LOS/NLOS 분리 표(`los_split_geo_v*.md`) → 결과 전체를 `doppler-results`
+artifact로 업로드.
 
 ## C++ 테스트 (`tests/test_all.cpp`)
 

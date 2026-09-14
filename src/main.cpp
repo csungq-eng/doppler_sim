@@ -34,7 +34,8 @@ void print_usage(const char* prog) {
       "  --time-ms <t>         채널 snapshot 시각 [ms] (기본 1)\n"
       "  --num-dominant <n>    방식 2의 dominant path 수 (기본 3)\n"
       "  --out-csv <path>      grid별 NMSE 결과 CSV (기본 doppler_comparison.csv)\n"
-      "  --sweep-max <n>       N = 1..n sweep 모드로 실행, nmse_sweep.csv 출력\n",
+      "  --sweep-max <n>       N = 1..n sweep 모드로 실행, nmse_sweep.csv(요약) +\n"
+      "                        nmse_sweep_grid.csv(grid별) 출력\n",
       prog);
 }
 
@@ -93,6 +94,16 @@ int main(int argc, char** argv) {
 
   // sweep 모드: N = 1..sweep_max에 대해 방식 2 NMSE 곡선을 뽑는다
   if (sweep_max > 0) {
+    size_t n = r.grids.size();
+    std::string sweep_csv =
+        csv_path == "doppler_comparison.csv" ? "nmse_sweep.csv" : csv_path;
+    // grid별 원자료: <sweep_csv 이름>_grid.csv (LOS/NLOS 분리 분석용)
+    std::string grid_csv = sweep_csv;
+    size_t dot = grid_csv.rfind(".csv");
+    grid_csv.insert(dot == std::string::npos ? grid_csv.size() : dot, "_grid");
+    std::ofstream gcsv(grid_csv);
+    gcsv << "grid_id,n_dominant,nmse2,nmse3\n";
+
     std::vector<double> sum2(sweep_max + 1, 0.0), max2(sweep_max + 1, 0.0);
     double sum3 = 0.0, max3 = 0.0;
     for (const rt::Grid& g : r.grids) {
@@ -105,11 +116,9 @@ int main(int argc, char** argv) {
         double n2 = sim::nmse(h1, sim::method2_dominant_doppler(r, g, p));
         sum2[nd] += n2;
         if (n2 > max2[nd]) max2[nd] = n2;
+        gcsv << g.grid_id << ',' << nd << ',' << n2 << ',' << n3 << '\n';
       }
     }
-    size_t n = r.grids.size();
-    std::string sweep_csv =
-        csv_path == "doppler_comparison.csv" ? "nmse_sweep.csv" : csv_path;
     std::ofstream csv(sweep_csv);
     csv << "n_dominant,mean_nmse2,mean_nmse2_db,max_nmse2_db,"
            "mean_nmse3_db,max_nmse3_db\n";
@@ -123,7 +132,8 @@ int main(int argc, char** argv) {
     }
     std::printf("방식3  %19.2f   %19.2f  (참고)\n", to_db(sum3 / n),
                 to_db(max3));
-    std::printf("결과 저장: %s\n", sweep_csv.c_str());
+    std::printf("결과 저장: %s (요약), %s (grid별)\n", sweep_csv.c_str(),
+                grid_csv.c_str());
     return 0;
   }
 

@@ -13,6 +13,7 @@ output_geo_per_pair/
 doppler_comparison*.csv
 nmse_sweep*.csv
 nmse_sweep*.png
+los_split_*.md
 
 # C++ 빌드
 build/

@@ -35,8 +35,11 @@ Path: path_id, power, aoa_deg, aod_deg, tau_s
              - 반사 : 산란체 s에 대해 tau = (|s-BS| + |grid-s|)/c,
                       AoD = az(s - BS), AoA = az(s - grid),
                       power ∝ 10^(-반사손실/10) / (|s-BS| + |grid-s|)²
-             - grid마다 산란체가 확률적으로 차폐되고, 남은 것 중 강한 순으로
-               최대 max_paths-1개를 취한 뒤 집합 전력 합 = 1로 정규화
+             - 차폐 블록(obstacles_m): 기지국→grid 직선이 블록을 지나면 LOS가
+               없는 NLOS grid가 된다(블록 뒤 grid들이 뭉쳐서 NLOS). 반사 path도
+               두 구간 중 하나라도 블록을 지나면 제거된다.
+             - 남은 산란체는 추가로 확률적 차폐를 거치고, 강한 순으로 최대
+               max_paths(-1, LOS가 있으면)개를 취한 뒤 집합 전력 합 = 1로 정규화
              - per-pair 모드: 같은 path 집합을 공유하되 안테나 element 위치별
                정확한 경로 길이로 tau(및 각도)를 계산 → 배열 응답이 tau에 담김
 
@@ -183,6 +186,43 @@ def los_aoa_deg(grid_id: int, config: SimulationConfig) -> float:
     return float(azimuth_deg(bx - gx, by - gy))
 
 
+def segment_hits_rect(p, q, rect) -> bool:
+    """선분 p→q가 축 정렬 사각형 rect=((x0,y0),(x1,y1)) 내부를 지나는지 (slab 검사)."""
+    (x0, y0), (x1, y1) = rect
+    lo = (min(x0, x1), min(y0, y1))
+    hi = (max(x0, x1), max(y0, y1))
+    t_enter, t_exit = 0.0, 1.0
+    for axis in range(2):
+        d = q[axis] - p[axis]
+        if abs(d) < 1e-12:
+            if not (lo[axis] <= p[axis] <= hi[axis]):
+                return False
+            continue
+        t0 = (lo[axis] - p[axis]) / d
+        t1 = (hi[axis] - p[axis]) / d
+        if t0 > t1:
+            t0, t1 = t1, t0
+        t_enter = max(t_enter, t0)
+        t_exit = min(t_exit, t1)
+        if t_enter > t_exit:
+            return False
+    return True
+
+
+def _blocked(p, q, config: SimulationConfig) -> bool:
+    return any(segment_hits_rect(p, q, r) for r in config.obstacles_m)
+
+
+def _inside_rect(pt, rect) -> bool:
+    (x0, y0), (x1, y1) = rect
+    return min(x0, x1) <= pt[0] <= max(x0, x1) and min(y0, y1) <= pt[1] <= max(y0, y1)
+
+
+def is_los(grid_id: int, config: SimulationConfig) -> bool:
+    """기지국→grid 직선이 어떤 차폐 블록에도 막히지 않으면 True (LOS grid)."""
+    return not _blocked(config.bs_position_m, grid_position_m(grid_id, config), config)
+
+
 def _array_positions(center, num_elements: int, config: SimulationConfig):
     """center를 중심으로 y축 방향 ULA element 위치 (num_elements, 2)."""
     lam = SPEED_OF_LIGHT / config.carrier_frequency_hz
@@ -203,15 +243,18 @@ class _Environment:
 
 def _build_environment(rng: np.random.Generator,
                        config: SimulationConfig) -> _Environment:
-    """산란체를 기지국 섹터(aod_range_deg) 안에 랜덤 배치한다."""
+    """산란체를 기지국 섹터(aod_range_deg) 안, 차폐 블록 밖에 랜덤 배치한다."""
     lo, hi = config.aod_range_deg
     bx, by = config.bs_position_m
     xy = []
     while len(xy) < config.num_scatterers:
         x = rng.uniform(*config.scatterer_x_range_m)
         y = rng.uniform(*config.scatterer_y_range_m)
-        if lo <= azimuth_deg(x - bx, y - by) <= hi:
-            xy.append((x, y))
+        if not (lo <= azimuth_deg(x - bx, y - by) <= hi):
+            continue
+        if any(_inside_rect((x, y), r) for r in config.obstacles_m):
+            continue
+        xy.append((x, y))
     loss = rng.uniform(*config.reflection_loss_db_range,
                        size=config.num_scatterers)
     return _Environment(scat_xy=np.array(xy), scat_loss_db=loss)
@@ -222,7 +265,8 @@ def _select_geometric_paths(rng: np.random.Generator, env: _Environment,
     """grid(배열 중심 기준)에서 사용할 path를 고른다.
 
     반환: (scat_ids, power)
-      scat_ids: tau 오름차순으로 정렬된 산란체 index 목록 (LOS는 LOS_ID, 항상 첫째)
+      scat_ids: tau 오름차순으로 정렬된 산란체 index 목록
+                (LOS grid이면 LOS_ID가 첫째, NLOS grid이면 반사 path만)
       power   : 같은 순서의 정규화된 전력 (합 = 1)
     """
     bs = np.asarray(config.bs_position_m, dtype=float)
@@ -233,20 +277,29 @@ def _select_geometric_paths(rng: np.random.Generator, env: _Environment,
     p_los = 1.0 / d_los ** 2
     p_nlos = 10.0 ** (-env.scat_loss_db / 10.0) / d_total ** 2
 
-    # 차폐: 산란체마다 독립적으로 보이거나 안 보임
-    visible = rng.random(len(p_nlos)) < config.scatterer_visibility
+    has_los = not _blocked(bs, ue, config)
+    # 반사 path 차폐: 두 구간 중 하나라도 블록에 막히면 제거, 그 외 랜덤 차폐
+    unblocked = np.array([
+        not _blocked(bs, s, config) and not _blocked(s, ue, config)
+        for s in env.scat_xy
+    ])
+    visible = unblocked & (rng.random(len(p_nlos)) < config.scatterer_visibility)
+    max_nlos = config.max_paths - (1 if has_los else 0)
+    min_nlos = config.min_paths - (1 if has_los else 0)
     by_power = np.argsort(-p_nlos)
-    chosen = [int(s) for s in by_power if visible[s]][: config.max_paths - 1]
-    # 보이는 산란체가 너무 적으면 강한 순으로 채워 최소 path 수를 보장
-    for s in by_power:
-        if len(chosen) >= config.min_paths - 1:
-            break
-        if int(s) not in chosen:
-            chosen.append(int(s))
+    chosen = [int(s) for s in by_power if visible[s]][:max_nlos]
+    # 보이는 산란체가 너무 적으면 (블록에 막히지 않은 것 중) 강한 순으로 채워
+    # 최소 path 수를 보장. 그래도 부족하면 막힌 것까지 사용한다.
+    for pool in (by_power[unblocked[by_power]], by_power):
+        for s in pool:
+            if len(chosen) >= min_nlos:
+                break
+            if int(s) not in chosen:
+                chosen.append(int(s))
 
     chosen.sort(key=lambda s: d_total[s])          # tau 오름차순
-    scat_ids = [LOS_ID] + chosen
-    power = np.array([p_los] + [p_nlos[s] for s in chosen])
+    scat_ids = ([LOS_ID] if has_los else []) + chosen
+    power = np.array(([p_los] if has_los else []) + [p_nlos[s] for s in chosen])
     return scat_ids, power / power.sum()
 
 

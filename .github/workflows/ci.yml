@@ -45,10 +45,10 @@ jobs:
         run: |
           for v in 0 60 120; do
             ./build/poc_doppler --binary output_per_pair/raytracing_result.bin \
-              --speed-kmh $v --direction-deg 45 --time-ms 1 --sweep-max 10 \
+              --speed-kmh $v --direction-deg 45 --time-ms 1 --sweep-max 16 \
               --out-csv nmse_sweep_v${v}.csv
             ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
-              --speed-kmh $v --direction-deg 45 --time-ms 1 --sweep-max 10 \
+              --speed-kmh $v --direction-deg 45 --time-ms 1 --sweep-max 16 \
               --out-csv nmse_sweep_geo_v${v}.csv
           done
 
@@ -59,6 +59,14 @@ jobs:
             python plot_sweep.py nmse_sweep_geo_v${v}.csv nmse_sweep_geo_v${v}.png "geometric (ray-tracing-like) data, UE speed ${v} km/h"
           done
 
+      - name: LOS / NLOS split (geometric)
+        run: |
+          for v in 0 60 120; do
+            echo "== UE speed ${v} km/h"
+            python summarize_los_split.py nmse_sweep_geo_v${v}_grid.csv \
+              output_geo_per_pair/config.json los_split_geo_v${v}.md
+          done
+
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
@@ -67,3 +75,4 @@ jobs:
             doppler_comparison*.csv
             nmse_sweep_*.csv
             nmse_sweep_*.png
+            los_split_*.md

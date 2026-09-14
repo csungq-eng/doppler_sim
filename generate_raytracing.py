@@ -15,21 +15,26 @@ import argparse
 import numpy as np
 
 from channel_sim import (
-    SimulationConfig, generate_raytracing_result, save_result, los_aoa_deg,
+    SimulationConfig, generate_raytracing_result, save_result, los_aoa_deg, is_los,
 )
 
 
 def print_geometric_summary(result, config):
-    """LOS 전력 비율(K-factor)과 LOS AoA 정합 여부를 출력한다."""
-    k_db, aoa_err = [], []
+    """LOS/NLOS grid 수, LOS grid의 K-factor, LOS AoA 정합 여부를 출력한다."""
+    k_db, aoa_err, nlos_ids = [], [], []
     for g in result.grids:
+        if not is_los(g.grid_id, config):
+            nlos_ids.append(g.grid_id)
+            continue
         paths = g.pairs[0].paths if config.per_antenna_pair else g.paths
         los = paths[0]
         nlos = sum(p.power for p in paths[1:])
         k_db.append(10 * np.log10(los.power / nlos))
         aoa_err.append(abs(los.aoa_deg - los_aoa_deg(g.grid_id, config)))
     k_db = np.array(k_db)
-    print(f"K-factor(LOS/NLOS): min {k_db.min():.1f}, max {k_db.max():.1f}, "
+    print(f"LOS / NLOS grid   : {len(k_db)} / {len(nlos_ids)}"
+          f"  (NLOS grid id: {nlos_ids})")
+    print(f"K-factor(LOS grid): min {k_db.min():.1f}, max {k_db.max():.1f}, "
           f"평균 {k_db.mean():.1f} dB  (LOS 전력 비율 평균 "
           f"{np.mean(10**(k_db/10)/(1+10**(k_db/10)))*100:.1f}%)")
     print(f"LOS AoA - 기하 LOS 방향 오차: 최대 {max(aoa_err):.2e} 도"

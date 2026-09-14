@@ -12,6 +12,8 @@ from .raytracing import (
     load_result,
     grid_position_m,
     los_aoa_deg,
+    is_los,
+    segment_hits_rect,
     azimuth_deg,
     SPEED_OF_LIGHT,
 )

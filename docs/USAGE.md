@@ -25,10 +25,12 @@ CI 수행 순서:
 4. C++ 단위 테스트 + Python이 만든 binary 3개를 C++ 로더로 읽는 교차 검증
 5. Doppler PoC 실행 (60 km/h, N=3 고정, grid별 NMSE) — random → `doppler_comparison.csv`,
    geometric → `doppler_comparison_geo.csv`
-6. N sweep 실행 — 속도 0 / 60 / 120 km/h 각각 N=1..10, 두 데이터 모두
-   → `nmse_sweep_v{0,60,120}.csv`(random), `nmse_sweep_geo_v{0,60,120}.csv`(geometric)
+6. N sweep 실행 — 속도 0 / 60 / 120 km/h 각각 N=1..16, 두 데이터 모두
+   → `nmse_sweep_v{0,60,120}.csv`(random), `nmse_sweep_geo_v{0,60,120}.csv`(geometric),
+   각각 grid별 원자료 `*_grid.csv`
 7. sweep 곡선 그림 생성 (같은 이름의 `.png`)
-8. 위 결과 14개 파일을 `doppler-results` artifact로 업로드
+8. geometric 결과를 LOS grid / NLOS grid로 나눈 표 (`los_split_geo_v{0,60,120}.md`)
+9. 위 결과를 `doppler-results` artifact로 업로드
 
 ### 2. 파라미터 변경
 
@@ -65,9 +67,10 @@ python generate_raytracing.py --geometric              # geometric, mode 0 → o
 python -m unittest test_raytracing -v                  # 생성/포맷 검증 (77개)
 ```
 
-`--geometric`은 기지국/grid/산란체 위치로부터 LOS + 단일 반사 path를 계산하는
-실제 레이트레이싱 모사 데이터다 (README "생성 시나리오" 참조). 방식 3이 가정하는
-LOS 방향과 데이터의 LOS AoA가 일치하므로 방식 3을 공정하게 평가할 수 있다.
+`--geometric`은 기지국/grid/산란체/차폐 블록 위치로부터 LOS + 단일 반사 path를
+계산하는 실제 레이트레이싱 모사 데이터다 (README "생성 시나리오" 참조). 블록 뒤
+grid는 LOS가 없는 NLOS grid가 되므로 방식 3의 LOS 가정이 맞는 grid와 틀린 grid를
+모두 평가할 수 있다.
 
 ### 2. C++ 빌드
 
@@ -117,8 +120,15 @@ python plot_sweep.py            # nmse_sweep.csv → nmse_sweep.png
 ```
 
 sweep 모드는 grid마다 방식 1 채널(기준)을 한 번 만들고, N=1..sweep-max 각각의
-방식 2 NMSE와 방식 3 NMSE(참고선)를 계산해 `nmse_sweep.csv`에 저장합니다.
-`--out-csv`를 지정하면 그 이름으로 저장합니다 (CI는 속도별로 `nmse_sweep_v<속도>.csv` 사용).
+방식 2 NMSE와 방식 3 NMSE(참고선)를 계산해 `nmse_sweep.csv`(grid 평균/최대 요약)와
+`nmse_sweep_grid.csv`(grid별 원자료)에 저장합니다. `--out-csv`를 지정하면 그 이름으로
+저장합니다 (CI는 속도별로 `nmse_sweep_v<속도>.csv` 사용; grid별 파일은 `_grid` 접미사).
+
+geometric 데이터라면 grid별 파일을 LOS grid / NLOS grid로 나눠 볼 수 있습니다:
+
+```bash
+python summarize_los_split.py nmse_sweep_geo_v60_grid.csv output_geo_per_pair/config.json [out.md]
+```
 
 `plot_sweep.py` 인자 (모두 선택):
 
@@ -141,7 +151,9 @@ python plot_sweep.py nmse_sweep_v120.csv nmse_sweep_v120.png "UE speed 120 km/h"
 |---|---|
 | `doppler_comparison.csv` (CI: geometric은 `doppler_comparison_geo.csv`) | grid별 방식 2/3 NMSE (선형 + dB). 열: grid_id, nmse_method2, nmse_method2_db, nmse_method3, nmse_method3_db |
 | `nmse_sweep.csv` (CI: `nmse_sweep_v<속도>.csv`, `nmse_sweep_geo_v<속도>.csv`) | N별 방식 2 NMSE 요약. 열: n_dominant, mean_nmse2, mean_nmse2_db, max_nmse2_db, mean_nmse3_db(참고, N 무관), max_nmse3_db |
+| `nmse_sweep_grid.csv` (CI: `nmse_sweep_*_grid.csv`) | sweep의 grid별 원자료. 열: grid_id, n_dominant, nmse2, nmse3 (선형) |
 | `nmse_sweep.png` (CI: 위 CSV와 같은 이름의 `.png`) | 방식 2 NMSE vs N 곡선 (평균 실선, 최악 grid 점선, 방식 3 평균 기준선) |
+| `los_split_geo_v<속도>.md` (CI) | geometric 데이터의 N별·방식 3 평균 NMSE를 전체/LOS/NLOS grid로 나눈 표 |
 
 NMSE는 항상 방식 1(모든 path에 Doppler 적용)을 reference로 한
 `‖H_x − H₁‖² / ‖H₁‖²` 이며, 낮을수록 방식 1에 가깝다는 뜻입니다.

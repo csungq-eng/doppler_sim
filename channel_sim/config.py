@@ -24,7 +24,7 @@ class SimulationConfig:
 
     # path 수 범위 (grid마다 랜덤하게 결정)
     min_paths: int = 3
-    max_paths: int = 10
+    max_paths: int = 16
 
     # 지연(tau) 관련 [초 단위]
     #  - 첫 path(LOS 가정) 지연: 기지국-grid 거리에 해당하는 범위에서 uniform
@@ -62,12 +62,20 @@ class SimulationConfig:
     grid_spacing_m: float = 10.0
     grid_cols: int = 10
     # 산란체(단일 반사체): 환경에 고정 배치되어 모든 grid가 공유 → 인접 grid의
-    # 채널이 서로 상관을 갖는다. 기지국 섹터(aod_range_deg) 안에만 배치한다.
-    num_scatterers: int = 15
+    # 채널이 서로 상관을 갖는다. 기지국 섹터(aod_range_deg) 안, 차폐 블록 밖에 배치.
+    num_scatterers: int = 30
     scatterer_x_range_m: tuple = (20.0, 200.0)
     scatterer_y_range_m: tuple = (-120.0, 120.0)
     reflection_loss_db_range: tuple = (6.0, 20.0)   # 산란체별 반사 손실 (고정)
-    scatterer_visibility: float = 0.6               # grid에서 산란체가 보일(차폐 안 될) 확률
+    scatterer_visibility: float = 0.6               # 블록 차폐 외 추가 랜덤 차폐를 통과할 확률
+    # 차폐 블록(건물): 축 정렬 사각형 ((x0, y0), (x1, y1)) 목록. 기지국→grid 직선이
+    # 블록을 지나면 그 grid는 NLOS(LOS path 없음)가 되고, 기지국→산란체·산란체→grid
+    # 구간이 블록을 지나는 반사 path도 제거된다. 블록 뒤 grid들이 뭉쳐서 NLOS가 된다.
+    # grid 위치가 블록 안에 들어가면 안 된다 (테스트로 검증).
+    obstacles_m: tuple = (
+        ((30.0, 8.0), (42.0, 26.0)),      # 기지국 앞 +y 쪽 블록 → 상단 grid 다수 차폐
+        ((25.0, -30.0), (35.0, -16.0)),   # 기지국 앞 -y 쪽 작은 블록 → 하단 근거리 grid 차폐
+    )
     # 안테나 배열: 기지국/단말 모두 y축 방향 ULA, 간격 = element_spacing_wavelengths * λ.
     # per-antenna-pair 모드에서 element별 정확한 경로 길이로 tau를 계산해 배열 응답
     # 위상(steering)이 tau에 담기도록 한다.
