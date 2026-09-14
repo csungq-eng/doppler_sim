@@ -80,8 +80,8 @@ def main() -> None:
         ax.annotate(
             f"N = {', '.join(map(str, exact_ns))}: exact match "
             "(all paths included)",
-            (0.55, 0.04), xycoords="axes fraction", ha="center",
-            fontsize=9, color=MUTED)
+            (0.5, 0.97), xycoords="axes fraction", ha="center", va="top",
+            fontsize=9, color=MUTED)  # 범례(좌하단)와 겹치지 않도록 상단 중앙
 
     ax.set_xticks(n_vals)
 
