@@ -175,6 +175,11 @@ Doppler 효과를 적용해 **주파수 도메인 채널 행렬 H (64 × 4 × 32
 
 ## 세 가지 방식
 
+처리 흐름: **CIR(path 집합) 단계에서 Doppler 반영 → 주파수 응답(CFR, H) 생성 →
+방식 1 대비 NMSE 비교**. 방식 1·2는 CIR의 각 path에 Doppler를 적용한 뒤 CFR로
+변환하고(방식 2는 포함할 path 수 N만 다름), 방식 3만 예외적으로 CFR로 변환한 뒤
+단일 Doppler를 적용한다.
+
 path별 Doppler 주파수: `f_d,p = (v/λ)·cos(AoA_p − 이동방향)`,
 subcarrier 주파수: `f_k = (k − N_SC/2)·SCS` (baseband, 센터 기준)
 
@@ -203,7 +208,8 @@ cmake --build build -j
 
 옵션: `--speed-kmh`(기본 60) `--direction-deg`(기본 45) `--time-ms`(기본 1)
 `--num-dominant`(기본 3) `--out-csv`(기본 doppler_comparison.csv)
-`--sweep-max <n>`(N=1..n sweep 모드, `nmse_sweep.csv` 출력 → `python plot_sweep.py`로 곡선 생성)
+`--sweep-max <n>`(N=1..n sweep 모드, `nmse_sweep.csv` 출력(`--out-csv`로 이름 지정 가능)
+→ `python plot_sweep.py [csv] [png] [부제목]`으로 곡선 생성)
 
 결과는 콘솔 요약(처음 10개 grid + 평균/최대)과 grid별 CSV로 출력된다.
 **전체 실행 방법은 [docs/USAGE.md](docs/USAGE.md) 참조** (CI 실행·artifact 다운로드 포함).
@@ -214,7 +220,8 @@ cmake --build build -j
 push마다 `.github/workflows/ci.yml`이 수행:
 Python 테스트 → binary 생성(두 모드) → CMake 빌드 → C++ 단위 테스트
 (Python이 만든 binary를 C++ 로더로 읽는 cross-language 검증 포함) →
-PoC 실행 → `doppler_comparison.csv` artifact 업로드.
+PoC 실행(`doppler_comparison.csv`) → 속도 0/60/120 km/h N sweep 및 곡선
+생성(`nmse_sweep_v*.csv/png`) → 결과 전체를 `doppler-results` artifact로 업로드.
 
 ## C++ 테스트 (`tests/test_all.cpp`)
 

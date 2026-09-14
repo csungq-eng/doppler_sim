@@ -22,10 +22,10 @@ CI 수행 순서:
 2. binary 생성 — per-pair 모드(`output_per_pair/`)와 per-grid 모드(`output/`)
 3. CMake 빌드 (Release)
 4. C++ 단위 테스트 + Python이 만든 binary를 C++ 로더로 읽는 교차 검증
-5. Doppler PoC 실행 (N=3 고정, grid별 NMSE → `doppler_comparison.csv`)
-6. N sweep 실행 (N=1..10 → `nmse_sweep.csv`)
-7. sweep 곡선 그림 생성 (`nmse_sweep.png`)
-8. 위 결과 3개 파일을 `doppler-results` artifact로 업로드
+5. Doppler PoC 실행 (60 km/h, N=3 고정, grid별 NMSE → `doppler_comparison.csv`)
+6. N sweep 실행 — 속도 0 / 60 / 120 km/h 각각 N=1..10 → `nmse_sweep_v0.csv`, `nmse_sweep_v60.csv`, `nmse_sweep_v120.csv`
+7. 속도별 sweep 곡선 그림 생성 (`nmse_sweep_v0.png`, `nmse_sweep_v60.png`, `nmse_sweep_v120.png`)
+8. 위 결과 7개 파일을 `doppler-results` artifact로 업로드
 
 ### 2. 파라미터 변경
 
@@ -38,7 +38,7 @@ CI 수행 순서:
 
 ### 3. 결과 확인
 
-- 콘솔 요약: Actions run 페이지 → build-and-test → "Run Doppler PoC" / "Run N sweep" 스텝 로그
+- 콘솔 요약: Actions run 페이지 → build-and-test → "Run Doppler PoC" / "Run N sweep (method 2) at 0/60/120 km/h" 스텝 로그
 - 파일: run 페이지 하단 **Artifacts** → `doppler-results` 다운로드, 또는 CLI:
 
 ```powershell
@@ -106,6 +106,20 @@ python plot_sweep.py            # nmse_sweep.csv → nmse_sweep.png
 
 sweep 모드는 grid마다 방식 1 채널(기준)을 한 번 만들고, N=1..sweep-max 각각의
 방식 2 NMSE와 방식 3 NMSE(참고선)를 계산해 `nmse_sweep.csv`에 저장합니다.
+`--out-csv`를 지정하면 그 이름으로 저장합니다 (CI는 속도별로 `nmse_sweep_v<속도>.csv` 사용).
+
+`plot_sweep.py` 인자 (모두 선택):
+
+```bash
+python plot_sweep.py [csv 경로] [png 경로] [부제목]
+# 기본값: nmse_sweep.csv  nmse_sweep.png  (부제목 없음)
+
+# 예: 속도별 sweep (CI와 동일)
+./build/poc_doppler --binary output_per_pair/raytracing_result.bin \
+    --speed-kmh 120 --direction-deg 45 --time-ms 1 --sweep-max 10 \
+    --out-csv nmse_sweep_v120.csv
+python plot_sweep.py nmse_sweep_v120.csv nmse_sweep_v120.png "UE speed 120 km/h"
+```
 
 ---
 
@@ -114,8 +128,8 @@ sweep 모드는 grid마다 방식 1 채널(기준)을 한 번 만들고, N=1..sw
 | 파일 | 내용 |
 |---|---|
 | `doppler_comparison.csv` | grid별 방식 2/3 NMSE (선형 + dB). 열: grid_id, nmse_method2, nmse_method2_db, nmse_method3, nmse_method3_db |
-| `nmse_sweep.csv` | N별 방식 2 NMSE 요약. 열: n_dominant, mean_nmse2, mean_nmse2_db, max_nmse2_db, mean_nmse3_db(참고, N 무관), max_nmse3_db |
-| `nmse_sweep.png` | 방식 2 NMSE vs N 곡선 (평균 실선, 최악 grid 점선, 방식 3 평균 기준선) |
+| `nmse_sweep.csv` (CI: `nmse_sweep_v<속도>.csv`) | N별 방식 2 NMSE 요약. 열: n_dominant, mean_nmse2, mean_nmse2_db, max_nmse2_db, mean_nmse3_db(참고, N 무관), max_nmse3_db |
+| `nmse_sweep.png` (CI: `nmse_sweep_v<속도>.png`) | 방식 2 NMSE vs N 곡선 (평균 실선, 최악 grid 점선, 방식 3 평균 기준선) |
 
 NMSE는 항상 방식 1(모든 path에 Doppler 적용)을 reference로 한
 `‖H_x − H₁‖² / ‖H₁‖²` 이며, 낮을수록 방식 1에 가깝다는 뜻입니다.
