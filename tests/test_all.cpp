@@ -219,15 +219,28 @@ int main(int argc, char** argv) {
     std::printf("-- 로더 검증: %s (geometric per-pair)\n", argv[3]);
     test_loader(argv[3], rt::kPerPair);
     // Python 생성기의 LOS AoA(첫 path)와 C++ los_angle_deg가 같은 규약인지 확인.
-    // per-pair binary의 pair (0,0)은 배열 중심에서 최대 ~1.5도 벗어난다.
+    // 차폐 블록 뒤 NLOS grid에는 LOS path가 없으므로, 첫 path의 tau가 기지국-grid
+    // 거리/c와 일치하는 grid(LOS grid)만 검사한다. per-pair binary의 pair (0,0)은
+    // 배열 중심에서 최대 ~1.5도, ~10 ns 벗어난다.
     rt::Result r = rt::load(argv[3]);
     sim::Params p;
     double max_err = 0.0;
+    size_t n_los = 0, n_nlos = 0;
     for (const rt::Grid& g : r.grids) {
-      const rt::Path& los = r.paths_for(g, 0, 0)[0];
-      max_err = std::max(max_err,
-                         std::abs(los.aoa_deg - sim::los_angle_deg(g.grid_id, p)));
+      double x, y;
+      sim::grid_position(g.grid_id, p, &x, &y);
+      double tau_los = std::hypot(x - p.bs_x_m, y - p.bs_y_m) / 299792458.0;
+      const rt::Path& first = r.paths_for(g, 0, 0)[0];
+      if (std::abs(first.tau_s - tau_los) < 20e-9) {
+        ++n_los;
+        max_err = std::max(
+            max_err, std::abs(first.aoa_deg - sim::los_angle_deg(g.grid_id, p)));
+      } else {
+        ++n_nlos;
+      }
     }
+    CHECK(n_los > 0 && n_nlos > 0,
+          "geometric 데이터에 LOS grid와 NLOS grid가 모두 존재");
     CHECK(max_err < 3.0,
           "geometric 데이터의 LOS AoA가 방식 3의 LOS 방향과 일치 (규약 동일)");
   }
