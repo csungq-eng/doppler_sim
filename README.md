@@ -276,7 +276,9 @@ cmake --build build -j
 
 결과는 콘솔 요약(처음 10개 grid + 평균/최대)과 grid별 CSV로 출력된다.
 **전체 실행 방법은 [docs/USAGE.md](docs/USAGE.md) 참조** (CI 실행·artifact 다운로드 포함).
-**속도 0/60/120 km/h 비교 결과와 해석은 [docs/RESULTS.md](docs/RESULTS.md) 참조.**
+**비교 결과와 해석은 [docs/RESULTS.md](docs/RESULTS.md) 참조** — 결론: 방식 3은
+오차가 심볼 index에 비례해 누적되고 페이딩을 재현하지 못해 정지 채널 외에는 부적합,
+방식 2(dominant N ≥ 3)는 t·속도·LOS 여부에 무관하게 예측 가능.
 
 ## CI (GitHub Actions)
 
