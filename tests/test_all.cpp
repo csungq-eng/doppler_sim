@@ -220,18 +220,20 @@ int main(int argc, char** argv) {
     test_loader(argv[3], rt::kPerPair);
     // Python 생성기의 LOS AoA(첫 path)와 C++ los_angle_deg가 같은 규약인지 확인.
     // 차폐 블록 뒤 NLOS grid에는 LOS path가 없으므로, 첫 path의 tau가 기지국-grid
-    // 거리/c와 일치하는 grid(LOS grid)만 검사한다. per-pair binary의 pair (0,0)은
-    // 배열 중심에서 최대 ~1.5도, ~10 ns 벗어난다.
+    // 거리/c와 일치하는 grid(LOS grid)만 검사한다. 배열 중심에 가장 가까운 pair를
+    // 쓰면 LOS tau 오차가 ~0.1 ns 이하인 반면, NLOS grid의 첫 반사 path는 최소
+    // 수 ns 이상 늦으므로 1 ns 기준으로 구분된다.
     rt::Result r = rt::load(argv[3]);
     sim::Params p;
+    uint32_t b_mid = r.num_bs_ant / 2 - 1, u_mid = r.num_ue_ant / 2 - 1;
     double max_err = 0.0;
     size_t n_los = 0, n_nlos = 0;
     for (const rt::Grid& g : r.grids) {
       double x, y;
       sim::grid_position(g.grid_id, p, &x, &y);
       double tau_los = std::hypot(x - p.bs_x_m, y - p.bs_y_m) / 299792458.0;
-      const rt::Path& first = r.paths_for(g, 0, 0)[0];
-      if (std::abs(first.tau_s - tau_los) < 20e-9) {
+      const rt::Path& first = r.paths_for(g, b_mid, u_mid)[0];
+      if (std::abs(first.tau_s - tau_los) < 1e-9) {
         ++n_los;
         max_err = std::max(
             max_err, std::abs(first.aoa_deg - sim::los_angle_deg(g.grid_id, p)));
