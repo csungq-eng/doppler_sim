@@ -23,6 +23,26 @@
                  └─ paths: list[Path]
 
 Path: path_id, power, aoa_deg, aod_deg, tau_s
+
+두 가지 생성 시나리오를 지원한다 (config.scenario로 선택):
+
+[random]     분포 파라미터에서 path를 랜덤 생성. 기하 정보가 없어 AoA가 전방위
+             uniform이고, per-pair 모드에서는 pair마다 독립인 집합이 나온다.
+[geometric]  기지국/grid/산란체 위치에서 LOS + 단일 반사 path를 계산한다
+             (실제 레이트레이싱 모사).
+             - LOS  : tau = d/c, AoD = az(grid - BS), AoA = az(BS - grid),
+                      power ∝ 1/d²
+             - 반사 : 산란체 s에 대해 tau = (|s-BS| + |grid-s|)/c,
+                      AoD = az(s - BS), AoA = az(s - grid),
+                      power ∝ 10^(-반사손실/10) / (|s-BS| + |grid-s|)²
+             - grid마다 산란체가 확률적으로 차폐되고, 남은 것 중 강한 순으로
+               최대 max_paths-1개를 취한 뒤 집합 전력 합 = 1로 정규화
+             - per-pair 모드: 같은 path 집합을 공유하되 안테나 element 위치별
+               정확한 경로 길이로 tau(및 각도)를 계산 → 배열 응답이 tau에 담김
+
+각도 규약: 방위각은 +x축 기준 반시계 [도]. AoA는 단말에서 전파가 "들어오는
+쪽"을 가리키는 방향(LOS면 단말→기지국)이다. 따라서 단말이 AoA 방향으로 이동하면
+doppler가 양(+)이다.
 """
 
 from dataclasses import dataclass
@@ -134,30 +154,176 @@ def _generate_paths(rng: np.random.Generator, config: SimulationConfig) -> list:
     ]
 
 
+# ---------------------------------------------------------------------------
+# geometric 시나리오
+# ---------------------------------------------------------------------------
+
+SPEED_OF_LIGHT = 299792458.0  # [m/s]
+LOS_ID = -1                   # 산란체 index 자리에서 LOS를 뜻하는 값
+
+
+def azimuth_deg(dx, dy):
+    """+x축 기준 반시계 방위각 [도], (-180, 180]."""
+    return np.degrees(np.arctan2(dy, dx))
+
+
+def grid_position_m(grid_id: int, config: SimulationConfig) -> tuple:
+    """grid의 (x, y) 위치 [m]. C++ sim::grid_position과 같은 정의."""
+    ox, oy = config.grid_origin_m
+    return (
+        ox + (grid_id % config.grid_cols) * config.grid_spacing_m,
+        oy + (grid_id // config.grid_cols) * config.grid_spacing_m,
+    )
+
+
+def los_aoa_deg(grid_id: int, config: SimulationConfig) -> float:
+    """grid에서 본 LOS 도래각 = 단말→기지국 방위각 [도]."""
+    gx, gy = grid_position_m(grid_id, config)
+    bx, by = config.bs_position_m
+    return float(azimuth_deg(bx - gx, by - gy))
+
+
+def _array_positions(center, num_elements: int, config: SimulationConfig):
+    """center를 중심으로 y축 방향 ULA element 위치 (num_elements, 2)."""
+    lam = SPEED_OF_LIGHT / config.carrier_frequency_hz
+    spacing = config.element_spacing_wavelengths * lam
+    offsets = (np.arange(num_elements) - (num_elements - 1) / 2.0) * spacing
+    return np.column_stack([
+        np.full(num_elements, float(center[0])), float(center[1]) + offsets,
+    ])
+
+
+@dataclass
+class _Environment:
+    """모든 grid가 공유하는 산란체 환경."""
+
+    scat_xy: np.ndarray       # (S, 2) 산란체 위치 [m]
+    scat_loss_db: np.ndarray  # (S,)   산란체별 반사 손실 [dB]
+
+
+def _build_environment(rng: np.random.Generator,
+                       config: SimulationConfig) -> _Environment:
+    """산란체를 기지국 섹터(aod_range_deg) 안에 랜덤 배치한다."""
+    lo, hi = config.aod_range_deg
+    bx, by = config.bs_position_m
+    xy = []
+    while len(xy) < config.num_scatterers:
+        x = rng.uniform(*config.scatterer_x_range_m)
+        y = rng.uniform(*config.scatterer_y_range_m)
+        if lo <= azimuth_deg(x - bx, y - by) <= hi:
+            xy.append((x, y))
+    loss = rng.uniform(*config.reflection_loss_db_range,
+                       size=config.num_scatterers)
+    return _Environment(scat_xy=np.array(xy), scat_loss_db=loss)
+
+
+def _select_geometric_paths(rng: np.random.Generator, env: _Environment,
+                            ue_xy, config: SimulationConfig):
+    """grid(배열 중심 기준)에서 사용할 path를 고른다.
+
+    반환: (scat_ids, power)
+      scat_ids: tau 오름차순으로 정렬된 산란체 index 목록 (LOS는 LOS_ID, 항상 첫째)
+      power   : 같은 순서의 정규화된 전력 (합 = 1)
+    """
+    bs = np.asarray(config.bs_position_m, dtype=float)
+    ue = np.asarray(ue_xy, dtype=float)
+    d_los = np.linalg.norm(ue - bs)
+    d_total = (np.linalg.norm(env.scat_xy - bs, axis=1)
+               + np.linalg.norm(env.scat_xy - ue, axis=1))
+    p_los = 1.0 / d_los ** 2
+    p_nlos = 10.0 ** (-env.scat_loss_db / 10.0) / d_total ** 2
+
+    # 차폐: 산란체마다 독립적으로 보이거나 안 보임
+    visible = rng.random(len(p_nlos)) < config.scatterer_visibility
+    by_power = np.argsort(-p_nlos)
+    chosen = [int(s) for s in by_power if visible[s]][: config.max_paths - 1]
+    # 보이는 산란체가 너무 적으면 강한 순으로 채워 최소 path 수를 보장
+    for s in by_power:
+        if len(chosen) >= config.min_paths - 1:
+            break
+        if int(s) not in chosen:
+            chosen.append(int(s))
+
+    chosen.sort(key=lambda s: d_total[s])          # tau 오름차순
+    scat_ids = [LOS_ID] + chosen
+    power = np.array([p_los] + [p_nlos[s] for s in chosen])
+    return scat_ids, power / power.sum()
+
+
+def _geometric_paths(env: _Environment, scat_ids, power, bs_pos, ue_pos) -> list:
+    """주어진 (기지국, 단말) 위치 쌍에 대한 path 목록을 만든다."""
+    bs = np.asarray(bs_pos, dtype=float)
+    ue = np.asarray(ue_pos, dtype=float)
+    paths = []
+    for pid, (s, p) in enumerate(zip(scat_ids, power)):
+        if s == LOS_ID:
+            tau = np.linalg.norm(ue - bs) / SPEED_OF_LIGHT
+            aod = azimuth_deg(*(ue - bs))
+            aoa = azimuth_deg(*(bs - ue))
+        else:
+            sxy = env.scat_xy[s]
+            tau = (np.linalg.norm(sxy - bs)
+                   + np.linalg.norm(ue - sxy)) / SPEED_OF_LIGHT
+            aod = azimuth_deg(*(sxy - bs))
+            aoa = azimuth_deg(*(sxy - ue))
+        paths.append(Path(
+            path_id=pid, power=float(p), aoa_deg=float(aoa),
+            aod_deg=float(aod), tau_s=float(tau),
+        ))
+    return paths
+
+
+def _generate_geometric_grid(rng, env, grid_id, config):
+    ue = grid_position_m(grid_id, config)
+    scat_ids, power = _select_geometric_paths(rng, env, ue, config)
+    if not config.per_antenna_pair:
+        paths = _geometric_paths(env, scat_ids, power, config.bs_position_m, ue)
+        return GridResult(grid_id=grid_id, num_paths=len(paths), paths=paths)
+
+    # per-pair: 같은 path 집합, element 위치별 정확한 경로 길이
+    bs_el = _array_positions(config.bs_position_m, config.num_bs_antennas, config)
+    ue_el = _array_positions(ue, config.num_ue_antennas, config)
+    pairs = []
+    for b in range(config.num_bs_antennas):
+        for u in range(config.num_ue_antennas):
+            paths = _geometric_paths(env, scat_ids, power, bs_el[b], ue_el[u])
+            pairs.append(AntennaPairResult(
+                bs_ant_id=b, ue_ant_id=u, num_paths=len(paths), paths=paths,
+            ))
+    return GridPairResult(grid_id=grid_id, pairs=pairs)
+
+
+def _generate_random_grid(rng, grid_id, config):
+    if config.per_antenna_pair:
+        pairs = [
+            AntennaPairResult(
+                bs_ant_id=b,
+                ue_ant_id=u,
+                num_paths=len(paths),
+                paths=paths,
+            )
+            for b in range(config.num_bs_antennas)
+            for u in range(config.num_ue_antennas)
+            for paths in [_generate_paths(rng, config)]
+        ]
+        return GridPairResult(grid_id=grid_id, pairs=pairs)
+    paths = _generate_paths(rng, config)
+    return GridResult(grid_id=grid_id, num_paths=len(paths), paths=paths)
+
+
 def generate_raytracing_result(config: SimulationConfig) -> RaytracingResult:
     """config에 따라 가상 레이트레이싱 결과를 생성한다."""
+    if config.scenario not in ("random", "geometric"):
+        raise ValueError(f"알 수 없는 scenario: {config.scenario!r}")
     rng = np.random.default_rng(config.random_seed)
-    grids = []
+    env = _build_environment(rng, config) if config.scenario == "geometric" else None
 
+    grids = []
     for grid_id in range(config.num_grids):
-        if config.per_antenna_pair:
-            pairs = [
-                AntennaPairResult(
-                    bs_ant_id=b,
-                    ue_ant_id=u,
-                    num_paths=len(paths),
-                    paths=paths,
-                )
-                for b in range(config.num_bs_antennas)
-                for u in range(config.num_ue_antennas)
-                for paths in [_generate_paths(rng, config)]
-            ]
-            grids.append(GridPairResult(grid_id=grid_id, pairs=pairs))
+        if env is not None:
+            grids.append(_generate_geometric_grid(rng, env, grid_id, config))
         else:
-            paths = _generate_paths(rng, config)
-            grids.append(GridResult(
-                grid_id=grid_id, num_paths=len(paths), paths=paths,
-            ))
+            grids.append(_generate_random_grid(rng, grid_id, config))
 
     return RaytracingResult(config=config, grids=grids)
 

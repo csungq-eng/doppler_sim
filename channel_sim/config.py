@@ -47,5 +47,31 @@ class SimulationConfig:
     # 재현성을 위한 랜덤 시드
     random_seed: int = 2026
 
+    # 생성 시나리오
+    #  - "random"   : 위 분포 파라미터로 path를 랜덤 생성 (기하 정보 없음, 기존 방식)
+    #  - "geometric": 기지국/grid/산란체 위치로부터 LOS + 단일 반사 path를 기하적으로
+    #                 계산 (실제 레이트레이싱 결과 모사). 아래 geometric 전용 파라미터 사용.
+    scenario: str = "random"
+
+    # ---- geometric 시나리오 전용 ----
+    # 좌표는 [m], 2D(azimuth 평면). 기지국/grid 배치는 C++ sim::Params 기본값과
+    # 동일해야 방식 3이 가정하는 LOS 방향이 데이터와 맞는다.
+    carrier_frequency_hz: float = 3.5e9
+    bs_position_m: tuple = (0.0, 0.0)
+    grid_origin_m: tuple = (50.0, -45.0)      # grid 0의 위치, row-major 정사각 배치
+    grid_spacing_m: float = 10.0
+    grid_cols: int = 10
+    # 산란체(단일 반사체): 환경에 고정 배치되어 모든 grid가 공유 → 인접 grid의
+    # 채널이 서로 상관을 갖는다. 기지국 섹터(aod_range_deg) 안에만 배치한다.
+    num_scatterers: int = 15
+    scatterer_x_range_m: tuple = (20.0, 200.0)
+    scatterer_y_range_m: tuple = (-120.0, 120.0)
+    reflection_loss_db_range: tuple = (6.0, 20.0)   # 산란체별 반사 손실 (고정)
+    scatterer_visibility: float = 0.6               # grid에서 산란체가 보일(차폐 안 될) 확률
+    # 안테나 배열: 기지국/단말 모두 y축 방향 ULA, 간격 = element_spacing_wavelengths * λ.
+    # per-antenna-pair 모드에서 element별 정확한 경로 길이로 tau를 계산해 배열 응답
+    # 위상(steering)이 tau에 담기도록 한다.
+    element_spacing_wavelengths: float = 0.5
+
     def to_dict(self) -> dict:
         return asdict(self)

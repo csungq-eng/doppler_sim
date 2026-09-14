@@ -82,9 +82,11 @@ void grid_position(uint32_t grid_id, const Params& p, double* x, double* y) {
 }
 
 double los_angle_deg(uint32_t grid_id, const Params& p) {
+  // AoA 규약: 단말에서 전파가 들어오는 쪽을 가리키는 방위각. LOS면 단말->기지국
+  // 방향이며, 단말이 이 방향으로 이동하면 doppler가 +가 된다 (Python 생성기와 동일).
   double x, y;
   grid_position(grid_id, p, &x, &y);
-  return std::atan2(y - p.bs_y_m, x - p.bs_x_m) * 180.0 / kPi;
+  return std::atan2(p.bs_y_m - y, p.bs_x_m - x) * 180.0 / kPi;
 }
 
 CMat method1_per_path_doppler(const rt::Result& r, const rt::Grid& g,
@@ -122,7 +124,7 @@ CMat method3_post_fd_doppler(const rt::Result& r, const rt::Grid& g,
     *paths = in;
     fd->assign(in.size(), 0.0);
   });
-  // LOS 방향(기지국->grid 상대 벡터) 단일 doppler로 행렬 전체 회전
+  // LOS 방향(grid->기지국 방위각 = LOS 도래각) 단일 doppler로 행렬 전체 회전
   double fd = doppler_shift_hz(los_angle_deg(g.grid_id, p), p);
   std::complex<double> rot = phasor(2.0 * kPi * fd * p.time_s);
   for (std::complex<double>& v : h) v *= rot;

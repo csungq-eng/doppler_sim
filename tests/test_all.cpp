@@ -1,7 +1,9 @@
 // C++ 구현 단위 테스트.
 //
-// 실행: unit_tests [per_pair.bin] [per_grid.bin]
+// 실행: unit_tests [per_pair.bin] [per_grid.bin] [geo_per_pair.bin]
 //   인자로 binary 파일 경로를 주면 로더 검증도 수행한다 (CI에서 사용).
+//   세 번째 인자는 geometric 시나리오 per-pair binary로, 로더 검증에 더해
+//   LOS AoA가 C++의 los_angle_deg와 같은 규약인지 확인한다.
 //   인자가 없으면 수식/로직 테스트만 수행한다.
 
 #include <algorithm>
@@ -144,6 +146,14 @@ void test_method3_equals_method1_for_single_los_path() {
   CHECK(sim::nmse(h1, h3) < 1e-24, "LOS 단일 path이면 방식 3 == 방식 1");
 }
 
+void test_los_angle_points_from_grid_to_bs() {
+  // grid 0 = (50, -45), 기지국 = 원점 → 단말->기지국 방향은 제2사분면(180 - 42°)
+  sim::Params p;
+  double expected = std::atan2(45.0, -50.0) * 180.0 / kPi;
+  CHECK(std::abs(sim::los_angle_deg(0, p) - expected) < 1e-9,
+        "LOS 각도는 grid->기지국 방향 (도래각 규약)");
+}
+
 void test_all_methods_equal_at_t0() {
   std::vector<rt::Path> paths = {
       {0, 0.5, 20.0, 0.0, 350e-9},
@@ -194,6 +204,7 @@ int main(int argc, char** argv) {
   test_method2_equals_method1_when_n_large();
   test_method2_keeps_only_dominant_paths();
   test_method3_equals_method1_for_single_los_path();
+  test_los_angle_points_from_grid_to_bs();
   test_all_methods_equal_at_t0();
 
   if (argc > 1) {
@@ -203,6 +214,22 @@ int main(int argc, char** argv) {
   if (argc > 2) {
     std::printf("-- 로더 검증: %s (per-grid)\n", argv[2]);
     test_loader(argv[2], rt::kPerGrid);
+  }
+  if (argc > 3) {
+    std::printf("-- 로더 검증: %s (geometric per-pair)\n", argv[3]);
+    test_loader(argv[3], rt::kPerPair);
+    // Python 생성기의 LOS AoA(첫 path)와 C++ los_angle_deg가 같은 규약인지 확인.
+    // per-pair binary의 pair (0,0)은 배열 중심에서 최대 ~1.5도 벗어난다.
+    rt::Result r = rt::load(argv[3]);
+    sim::Params p;
+    double max_err = 0.0;
+    for (const rt::Grid& g : r.grids) {
+      const rt::Path& los = r.paths_for(g, 0, 0)[0];
+      max_err = std::max(max_err,
+                         std::abs(los.aoa_deg - sim::los_angle_deg(g.grid_id, p)));
+    }
+    CHECK(max_err < 3.0,
+          "geometric 데이터의 LOS AoA가 방식 3의 LOS 방향과 일치 (규약 동일)");
   }
 
   if (failures == 0) {

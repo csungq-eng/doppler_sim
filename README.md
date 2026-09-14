@@ -19,15 +19,36 @@
 | **per-grid** (기본) | `per_antenna_pair=False` | grid마다 하나의 path 집합 |
 | **per-antenna-pair** | `per_antenna_pair=True` | grid마다 64×4 안테나 pair 각각이 자신의 path 집합을 가짐 (grid당 256개 집합) |
 
+## 생성 시나리오
+
+`SimulationConfig.scenario`로 path를 만드는 방식을 선택한다.
+
+| 시나리오 | 내용 |
+|---|---|
+| **random** (기본) | 분포 파라미터에서 랜덤 생성. 기하 정보가 없어 AoA가 전방위 uniform이고 per-pair 모드에서 pair마다 독립. 방식 3(LOS 단일 Doppler)에 가장 불리한 데이터 |
+| **geometric** | 기지국·grid·산란체 위치에서 LOS + 단일 반사 path를 기하적으로 계산 (**실제 레이트레이싱 결과 모사**). LOS AoA가 실제 기지국 방향과 일치하고 전력은 LOS에 집중(K-factor 평균 ≈ 8 dB), 산란체를 모든 grid가 공유해 인접 grid 채널이 상관. per-pair 모드에서는 안테나 element별 정확한 경로 길이로 tau를 계산해 배열 응답 위상이 tau에 담긴다 |
+
+geometric 시나리오의 path 계산 (좌표 [m], 2D azimuth 평면, c = 광속):
+
+- LOS: `tau = d/c`, `AoD = az(grid − BS)`, `AoA = az(BS − grid)`, `power ∝ 1/d²`
+- 반사(산란체 s): `tau = (|s−BS| + |grid−s|)/c`, `AoD = az(s − BS)`, `AoA = az(s − grid)`,
+  `power ∝ 10^(−반사손실/10) / (|s−BS| + |grid−s|)²`
+- grid마다 산란체가 `scatterer_visibility` 확률로 보이며, 보이는 것 중 강한 순으로
+  최대 `max_paths − 1`개 채택 → 집합 전력 합 = 1로 정규화
+
+**각도 규약**: 방위각은 +x축 기준 반시계 [도]. AoA는 단말에서 전파가 *들어오는 쪽*을
+가리키는 방향(LOS면 단말→기지국)이라, 단말이 AoA 방향으로 이동하면 Doppler가 양(+)이다.
+C++ 방식 3의 LOS 방향(`sim::los_angle_deg`)도 같은 규약을 쓴다.
+
 ## 파일 구성
 
 ```
 PoC_Channel/
 ├─ channel_sim/               # [Python] 시뮬레이션 패키지
 │  ├─ config.py               #   SimulationConfig (모든 파라미터)
-│  └─ raytracing.py           #   구조체 정의 + 생성/저장/로드
+│  └─ raytracing.py           #   구조체 정의 + random/geometric 생성 + 저장/로드
 ├─ generate_raytracing.py     # [Python] 실행 스크립트
-├─ test_raytracing.py         # [Python] binary 파일 검증 테스트 (두 모드)
+├─ test_raytracing.py         # [Python] binary 파일 검증 테스트 (2 시나리오 x 2 모드)
 ├─ src/                       # [C++] Doppler PoC
 │  ├─ rt_loader.hpp/.cpp      #   binary 로더 (v2, 두 모드)
 │  ├─ doppler_sim.hpp/.cpp    #   Doppler 3가지 방식 + 주파수 채널 변환
@@ -35,8 +56,10 @@ PoC_Channel/
 ├─ tests/test_all.cpp         # [C++] 단위 테스트
 ├─ CMakeLists.txt
 ├─ .github/workflows/ci.yml   # GitHub Actions (Python 테스트 → 생성 → C++ 빌드/테스트/실행)
-├─ output/                    # per-grid 모드 결과물 (git 제외)
-└─ output_per_pair/           # per-antenna-pair 모드 결과물 (git 제외)
+├─ output/                    # random, per-grid 결과물 (git 제외)
+├─ output_per_pair/           # random, per-antenna-pair 결과물 (git 제외)
+├─ output_geo/                # geometric, per-grid 결과물 (git 제외)
+└─ output_geo_per_pair/       # geometric, per-antenna-pair 결과물 (git 제외)
    ├─ raytracing_result.bin   #   binary 채널 데이터
    └─ config.json             #   생성에 사용한 전체 파라미터
 ```
@@ -44,11 +67,15 @@ PoC_Channel/
 ## 실행 방법
 
 ```powershell
-# per-grid 모드 (output/에 저장)
+# random 시나리오, per-grid 모드 (output/에 저장)
 python generate_raytracing.py
 
-# per-antenna-pair 모드 (output_per_pair/에 저장)
+# random 시나리오, per-antenna-pair 모드 (output_per_pair/에 저장)
 python generate_raytracing.py --per-pair
+
+# geometric 시나리오 (output_geo/, output_geo_per_pair/에 저장)
+python generate_raytracing.py --geometric
+python generate_raytracing.py --geometric --per-pair
 
 # 저장 폴더 지정
 python generate_raytracing.py --per-pair --out my_output
@@ -56,6 +83,9 @@ python generate_raytracing.py --per-pair --out my_output
 # 테스트 (임시 폴더에서 생성→저장→로드를 수행하므로 output/ 없이도 동작)
 python -m unittest test_raytracing -v
 ```
+
+geometric 시나리오는 요약에 K-factor(LOS/NLOS 전력비) 분포와 LOS AoA가 기하
+LOS 방향과 일치하는지도 출력한다.
 
 요구 사항: Python 3.x, numpy
 
@@ -98,10 +128,24 @@ Path (단일 전파 경로)
 | `aod_range_deg` | ±60° | AoD 범위 (기지국 섹터 가정) |
 | `aoa_range_deg` | ±180° | AoA 범위 (단말 기준 전방위) |
 | `random_seed` | 2026 | 재현성용 시드 |
+| `scenario` | "random" | "random" 또는 "geometric" |
 
-`SimulationConfig(num_grids=1000, per_antenna_pair=True)` 처럼 인자로 조정한다.
+geometric 전용 (좌표 [m]):
 
-## 랜덤 생성 방식
+| 파라미터 | 기본값 | 설명 |
+|---|---|---|
+| `carrier_frequency_hz` | 3.5e9 | 파장 계산용 (배열 간격) |
+| `bs_position_m` / `grid_origin_m` / `grid_spacing_m` / `grid_cols` | (0,0) / (50,−45) / 10 / 10 | 기지국·grid 배치. **C++ `sim::Params` 기본값과 동일해야 함** |
+| `num_scatterers` | 15 | 환경에 고정 배치되는 산란체 수 (기지국 섹터 안) |
+| `scatterer_x_range_m` / `scatterer_y_range_m` | (20,200) / (−120,120) | 산란체 배치 영역 |
+| `reflection_loss_db_range` | (6, 20) | 산란체별 반사 손실 (uniform, 고정) |
+| `scatterer_visibility` | 0.6 | grid에서 산란체가 차폐되지 않을 확률 |
+| `element_spacing_wavelengths` | 0.5 | ULA element 간격 (λ 단위), per-pair 모드에서 사용 |
+
+`SimulationConfig(num_grids=1000, per_antenna_pair=True, scenario="geometric")`
+처럼 인자로 조정한다.
+
+## random 시나리오의 생성 방식
 
 단순 uniform 대신 물리적으로 그럴듯한 분포를 사용한다. path 집합 하나를
 생성하는 로직은 두 모드가 공유한다 (`_generate_paths`).
@@ -152,7 +196,8 @@ Path (단일 전파 경로)
 
 ## 테스트 (`test_raytracing.py`)
 
-`unittest` 기반, 공통 테스트를 두 모드 클래스가 상속하여 총 31개 실행.
+`unittest` 기반, 공통 테스트를 시나리오(random/geometric) × 모드(per-grid/per-pair)
+4개 클래스가 상속하여 총 77개 실행.
 
 - **파일 검증**: 파일 존재, header 필드 일치, 파일 크기가 포맷 정의와 정확히 일치
 - **round-trip**: 로드한 모든 값이 저장 전과 bit 단위로 동일 (f64 무손실)
@@ -161,7 +206,10 @@ Path (단일 전파 경로)
 - **per-pair 전용**: grid당 pair 수 = 64×4, (bs, ue) id 순서, pair 간 독립성,
   header mode와 config 불일치 시 로드 거부
 - **확장성/재현성**: num_grids 변경 동작, 같은 seed → 같은 결과
-- **오류 처리**: magic 손상·파일 잘림 시 로드 거부
+- **오류 처리**: magic 손상·파일 잘림·알 수 없는 scenario 거부
+- **geometric 전용**: LOS tau = 거리/c, LOS AoA/AoD가 기하 방향과 일치(서로 반대),
+  LOS가 항상 최강, 반사 path 지연 > LOS(삼각 부등식), 인접 grid가 산란체 공유,
+  per-pair에서 pair 간 path 수/id/전력 동일·tau는 element 위치만큼만 차이
 
 ---
 
@@ -187,7 +235,7 @@ subcarrier 주파수: `f_k = (k − N_SC/2)·SCS` (baseband, 센터 기준)
 |---|---|
 | **1 (기준)** | 각 path에 Doppler 적용 후 주파수 변환: `H[b][u][k] = Σ_p √P_p · e^{−j2πf_c·τ_p} · e^{+j2πf_d,p·t} · e^{−j2πf_k·τ_p}` |
 | **2** | power 기준 dominant N개 path**만으로** 채널 구성 (나머지 path는 제외), 포함된 path에는 방식 1과 동일하게 Doppler 적용 |
-| **3** | Doppler 없이 주파수 변환 후, LOS 방향 단일 Doppler로 행렬 전체 위상 회전. path 정보가 없다고 가정하므로 기지국·grid 위치에서 상대 벡터의 azimuth를 AoA로 사용: `H₃ = H(f_d=0) · e^{+j2πf_LOS·t}` |
+| **3** | Doppler 없이 주파수 변환 후, LOS 방향 단일 Doppler로 행렬 전체 위상 회전. path 정보가 없다고 가정하므로 grid→기지국 상대 벡터의 azimuth(LOS 도래각)를 AoA로 사용: `H₃ = H(f_d=0) · e^{+j2πf_LOS·t}` |
 
 방식 3을 위해 기지국 위치(기본 원점)와 grid 배치(기본 10×10, 간격 10 m,
 원점 (50, −45))를 `sim::Params`로 정의한다.
@@ -201,8 +249,12 @@ subcarrier 주파수: `f_k = (k − N_SC/2)·SCS` (baseband, 센터 기준)
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-./build/unit_tests output_per_pair/raytracing_result.bin output/raytracing_result.bin
+./build/unit_tests output_per_pair/raytracing_result.bin output/raytracing_result.bin \
+    output_geo_per_pair/raytracing_result.bin
 ./build/poc_doppler --binary output_per_pair/raytracing_result.bin \
+    --speed-kmh 60 --direction-deg 45 --time-ms 1 --num-dominant 3
+# 실제 레이트레이싱 모사 데이터로 실행
+./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
     --speed-kmh 60 --direction-deg 45 --time-ms 1 --num-dominant 3
 ```
 
@@ -218,10 +270,12 @@ cmake --build build -j
 ## CI (GitHub Actions)
 
 push마다 `.github/workflows/ci.yml`이 수행:
-Python 테스트 → binary 생성(두 모드) → CMake 빌드 → C++ 단위 테스트
-(Python이 만든 binary를 C++ 로더로 읽는 cross-language 검증 포함) →
-PoC 실행(`doppler_comparison.csv`) → 속도 0/60/120 km/h N sweep 및 곡선
-생성(`nmse_sweep_v*.csv/png`) → 결과 전체를 `doppler-results` artifact로 업로드.
+Python 테스트 → binary 생성(random 두 모드 + geometric per-pair) → CMake 빌드 →
+C++ 단위 테스트(Python이 만든 binary를 C++ 로더로 읽는 cross-language 검증,
+geometric LOS AoA 규약 일치 검증 포함) → PoC 실행(random `doppler_comparison.csv`,
+geometric `doppler_comparison_geo.csv`) → 속도 0/60/120 km/h N sweep 및 곡선
+생성(random `nmse_sweep_v*.csv/png`, geometric `nmse_sweep_geo_v*.csv/png`) →
+결과 전체를 `doppler-results` artifact로 업로드.
 
 ## C++ 테스트 (`tests/test_all.cpp`)
 
@@ -229,8 +283,10 @@ PoC 실행(`doppler_comparison.csv`) → 속도 0/60/120 km/h N sweep 및 곡선
 - Doppler 수식: 이동 방향과 같은/반대/수직 AoA에서 +f_max/−f_max/0
 - N ≥ path 수이면 방식 2 == 방식 1, N = 1이면 최강 path만의 채널, N = 0이면 채널 = 0
 - LOS 단일 path이면 방식 3 == 방식 1
+- LOS 각도가 grid→기지국 방향(도래각 규약)
 - t = 0이면 세 방식 모두 동일
 - 로더: Python이 생성한 binary의 mode/안테나 수/grid 수/전력 합 검증
+- geometric binary의 LOS AoA가 C++ `los_angle_deg`와 일치 (Python/C++ 규약 동일)
 
 ## 다음 단계 (예정)
 

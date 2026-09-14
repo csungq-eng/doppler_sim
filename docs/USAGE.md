@@ -18,14 +18,17 @@ Doppler 적용 및 방식 1/2/3 NMSE 비교 → ③ N sweep 곡선 생성**
 
 CI 수행 순서:
 
-1. Python 테스트 (`test_raytracing`, 31개)
-2. binary 생성 — per-pair 모드(`output_per_pair/`)와 per-grid 모드(`output/`)
+1. Python 테스트 (`test_raytracing`, 77개)
+2. binary 생성 — random 시나리오 per-pair(`output_per_pair/`)·per-grid(`output/`),
+   geometric 시나리오(실제 레이트레이싱 모사) per-pair(`output_geo_per_pair/`)
 3. CMake 빌드 (Release)
-4. C++ 단위 테스트 + Python이 만든 binary를 C++ 로더로 읽는 교차 검증
-5. Doppler PoC 실행 (60 km/h, N=3 고정, grid별 NMSE → `doppler_comparison.csv`)
-6. N sweep 실행 — 속도 0 / 60 / 120 km/h 각각 N=1..10 → `nmse_sweep_v0.csv`, `nmse_sweep_v60.csv`, `nmse_sweep_v120.csv`
-7. 속도별 sweep 곡선 그림 생성 (`nmse_sweep_v0.png`, `nmse_sweep_v60.png`, `nmse_sweep_v120.png`)
-8. 위 결과 7개 파일을 `doppler-results` artifact로 업로드
+4. C++ 단위 테스트 + Python이 만든 binary 3개를 C++ 로더로 읽는 교차 검증
+5. Doppler PoC 실행 (60 km/h, N=3 고정, grid별 NMSE) — random → `doppler_comparison.csv`,
+   geometric → `doppler_comparison_geo.csv`
+6. N sweep 실행 — 속도 0 / 60 / 120 km/h 각각 N=1..10, 두 데이터 모두
+   → `nmse_sweep_v{0,60,120}.csv`(random), `nmse_sweep_geo_v{0,60,120}.csv`(geometric)
+7. sweep 곡선 그림 생성 (같은 이름의 `.png`)
+8. 위 결과 14개 파일을 `doppler-results` artifact로 업로드
 
 ### 2. 파라미터 변경
 
@@ -38,7 +41,7 @@ CI 수행 순서:
 
 ### 3. 결과 확인
 
-- 콘솔 요약: Actions run 페이지 → build-and-test → "Run Doppler PoC" / "Run N sweep (method 2) at 0/60/120 km/h" 스텝 로그
+- 콘솔 요약: Actions run 페이지 → build-and-test → "Run Doppler PoC (random/geometric)" / "Run N sweep ..." 스텝 로그
 - 파일: run 페이지 하단 **Artifacts** → `doppler-results` 다운로드, 또는 CLI:
 
 ```powershell
@@ -55,10 +58,16 @@ gh run download <run-id> --repo csungq-eng/doppler_sim -n doppler-results -D res
 ### 1. binary 생성 (Python)
 
 ```powershell
-python generate_raytracing.py --per-pair    # mode 1 → output_per_pair/
-python generate_raytracing.py               # mode 0 → output/
-python -m unittest test_raytracing -v       # 생성/포맷 검증 (31개)
+python generate_raytracing.py --per-pair               # random,    mode 1 → output_per_pair/
+python generate_raytracing.py                          # random,    mode 0 → output/
+python generate_raytracing.py --geometric --per-pair   # geometric, mode 1 → output_geo_per_pair/
+python generate_raytracing.py --geometric              # geometric, mode 0 → output_geo/
+python -m unittest test_raytracing -v                  # 생성/포맷 검증 (77개)
 ```
+
+`--geometric`은 기지국/grid/산란체 위치로부터 LOS + 단일 반사 path를 계산하는
+실제 레이트레이싱 모사 데이터다 (README "생성 시나리오" 참조). 방식 3이 가정하는
+LOS 방향과 데이터의 LOS AoA가 일치하므로 방식 3을 공정하게 평가할 수 있다.
 
 ### 2. C++ 빌드
 
@@ -73,8 +82,9 @@ cmake --build build -j
 # 수식/로직 테스트만
 ./build/unit_tests
 
-# binary 로더 교차 검증 포함
-./build/unit_tests output_per_pair/raytracing_result.bin output/raytracing_result.bin
+# binary 로더 교차 검증 포함 (세 번째 인자: geometric per-pair → LOS AoA 규약 검증)
+./build/unit_tests output_per_pair/raytracing_result.bin output/raytracing_result.bin \
+    output_geo_per_pair/raytracing_result.bin
 ```
 
 ### 4. Doppler PoC 실행 (방식 1/2/3 비교)
@@ -84,9 +94,11 @@ cmake --build build -j
     --speed-kmh 60 --direction-deg 45 --time-ms 1 --num-dominant 3
 ```
 
+geometric 데이터로 실행하려면 `--binary output_geo_per_pair/raytracing_result.bin`을 준다.
+
 | 옵션 | 기본값 | 의미 |
 |---|---|---|
-| `--binary <path>` | output_per_pair/raytracing_result.bin | 입력 binary |
+| `--binary <path>` | output_per_pair/raytracing_result.bin | 입력 binary (random 또는 geometric) |
 | `--speed-kmh <v>` | 60 | 단말 이동 속도 [km/h] |
 | `--direction-deg <d>` | 45 | 단말 이동 방향 azimuth [도] |
 | `--time-ms <t>` | 1 | 채널 snapshot 시각 [ms] |
@@ -127,9 +139,9 @@ python plot_sweep.py nmse_sweep_v120.csv nmse_sweep_v120.png "UE speed 120 km/h"
 
 | 파일 | 내용 |
 |---|---|
-| `doppler_comparison.csv` | grid별 방식 2/3 NMSE (선형 + dB). 열: grid_id, nmse_method2, nmse_method2_db, nmse_method3, nmse_method3_db |
-| `nmse_sweep.csv` (CI: `nmse_sweep_v<속도>.csv`) | N별 방식 2 NMSE 요약. 열: n_dominant, mean_nmse2, mean_nmse2_db, max_nmse2_db, mean_nmse3_db(참고, N 무관), max_nmse3_db |
-| `nmse_sweep.png` (CI: `nmse_sweep_v<속도>.png`) | 방식 2 NMSE vs N 곡선 (평균 실선, 최악 grid 점선, 방식 3 평균 기준선) |
+| `doppler_comparison.csv` (CI: geometric은 `doppler_comparison_geo.csv`) | grid별 방식 2/3 NMSE (선형 + dB). 열: grid_id, nmse_method2, nmse_method2_db, nmse_method3, nmse_method3_db |
+| `nmse_sweep.csv` (CI: `nmse_sweep_v<속도>.csv`, `nmse_sweep_geo_v<속도>.csv`) | N별 방식 2 NMSE 요약. 열: n_dominant, mean_nmse2, mean_nmse2_db, max_nmse2_db, mean_nmse3_db(참고, N 무관), max_nmse3_db |
+| `nmse_sweep.png` (CI: 위 CSV와 같은 이름의 `.png`) | 방식 2 NMSE vs N 곡선 (평균 실선, 최악 grid 점선, 방식 3 평균 기준선) |
 
 NMSE는 항상 방식 1(모든 path에 Doppler 적용)을 reference로 한
 `‖H_x − H₁‖² / ‖H₁‖²` 이며, 낮을수록 방식 1에 가깝다는 뜻입니다.

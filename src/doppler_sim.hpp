@@ -8,8 +8,11 @@
 //     fd_p = (v/lambda) * cos(aoa_p - 이동방향),  f_k = (k - Nsc/2) * SCS
 //   방식 2: power 상위 dominant N개 path만으로 채널 구성(나머지 제외),
 //           포함된 path에는 방식 1과 동일하게 doppler 적용
-//   방식 3: doppler 없이 주파수 채널 변환 후, LOS 방향(기지국->단말 상대
-//           벡터를 AoA로 가정) 단일 doppler로 행렬 전체를 회전
+//   방식 3: doppler 없이 주파수 채널 변환 후, LOS 방향(단말->기지국 상대
+//           벡터의 방위각을 AoA로 가정) 단일 doppler로 행렬 전체를 회전
+//
+// 각도 규약: 방위각은 +x축 기준 반시계 [도]. AoA는 단말에서 전파가 들어오는
+// 쪽을 가리키므로 LOS AoA = 단말->기지국 방향이고, 그쪽으로 이동하면 fd > 0.
 #pragma once
 
 #include <complex>
@@ -34,7 +37,8 @@ struct Params {
   // 방식 2: doppler를 적용할 dominant path 수
   uint32_t num_dominant = 3;
 
-  // 방식 3: 기지국/grid 위치 (grid는 row-major 정사각 배치로 가정)
+  // 방식 3: 기지국/grid 위치 (grid는 row-major 정사각 배치로 가정).
+  // Python SimulationConfig의 geometric 파라미터 기본값과 같아야 한다.
   double bs_x_m = 0.0;
   double bs_y_m = 0.0;
   double grid_origin_x_m = 50.0;   // grid 0의 위치
@@ -52,7 +56,7 @@ double doppler_shift_hz(double aoa_deg, const Params& p);
 // grid의 (x, y) 위치
 void grid_position(uint32_t grid_id, const Params& p, double* x, double* y);
 
-// 기지국 -> grid 상대 벡터의 azimuth [도] (방식 3에서 AoA로 가정)
+// grid -> 기지국 상대 벡터의 azimuth [도] = LOS 도래각 (방식 3에서 AoA로 가정)
 double los_angle_deg(uint32_t grid_id, const Params& p);
 
 CMat method1_per_path_doppler(const rt::Result& r, const rt::Grid& g,

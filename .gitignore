@@ -8,7 +8,11 @@ __pycache__/
 # 생성 결과물
 output/
 output_per_pair/
-doppler_comparison.csv
+output_geo/
+output_geo_per_pair/
+doppler_comparison*.csv
+nmse_sweep*.csv
+nmse_sweep*.png
 
 # C++ 빌드
 build/
