@@ -259,8 +259,9 @@ path 이외의 전력 비율"로 결정되며 AoA를 어디서 가져오든 넘�
 
 ## 재현 방법
 
-[USAGE.md](USAGE.md) 참조. 요약: push하면 CI가 두 데이터 × 세 속도의 sweep과
-LOS/NLOS 분리 표를 자동 생성해 `doppler-results` artifact로 업로드한다. 로컬 재현은:
+[USAGE.md](USAGE.md) 참조. 요약: push하면 CI가 두 데이터 × 세 속도의 N sweep,
+geometric 심볼 sweep(60/120 km/h + 재정규화), LOS/NLOS 분리 표를 자동 생성해
+`doppler-results` artifact로 업로드한다. 로컬 재현은:
 
 ```bash
 python generate_raytracing.py --geometric --per-pair
@@ -271,4 +272,15 @@ python plot_sweep.py nmse_sweep_geo_v120.csv nmse_sweep_geo_v120.png \
     "geometric (ray-tracing-like) data, UE speed 120 km/h"
 python summarize_los_split.py nmse_sweep_geo_v120_grid.csv \
     output_geo_per_pair/config.json los_split_geo_v120.md
+
+# 3절: 심볼 index sweep (NMSE + RSRP 오차, 방식 2 N=3)
+./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
+    --speed-kmh 60 --direction-deg 45 --num-dominant 3 \
+    --symbol-list 0,1,2,4,7,14,28,56,140,280 --out-csv symbol_sweep_geo_v60.csv
+python plot_symbol_sweep.py symbol_sweep_geo_v60.csv symbol_sweep_geo_v60.png \
+    "geometric data, UE speed 60 km/h, method 2 N=3"
+# 방식 2 전력 재정규화 버전
+./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
+    --speed-kmh 60 --direction-deg 45 --num-dominant 3 --renorm-dominant \
+    --symbol-list 0,1,2,4,7,14,28,56,140,280 --out-csv symbol_sweep_geo_v60_renorm.csv
 ```
