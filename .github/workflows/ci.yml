@@ -59,6 +59,26 @@ jobs:
             python plot_sweep.py nmse_sweep_geo_v${v}.csv nmse_sweep_geo_v${v}.png "geometric (ray-tracing-like) data, UE speed ${v} km/h"
           done
 
+      - name: Symbol sweep (time evolution, geometric) at 60/120 km/h
+        run: |
+          for v in 60 120; do
+            ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
+              --speed-kmh $v --direction-deg 45 --num-dominant 3 \
+              --symbol-list 0,1,2,4,7,14,28,56,140,280 \
+              --out-csv symbol_sweep_geo_v${v}.csv
+          done
+          ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
+            --speed-kmh 60 --direction-deg 45 --num-dominant 3 --renorm-dominant \
+            --symbol-list 0,1,2,4,7,14,28,56,140,280 \
+            --out-csv symbol_sweep_geo_v60_renorm.csv
+
+      - name: Plot symbol sweep
+        run: |
+          for v in 60 120; do
+            python plot_symbol_sweep.py symbol_sweep_geo_v${v}.csv symbol_sweep_geo_v${v}.png "geometric data, UE speed ${v} km/h, method 2 N=3"
+          done
+          python plot_symbol_sweep.py symbol_sweep_geo_v60_renorm.csv symbol_sweep_geo_v60_renorm.png "geometric data, UE speed 60 km/h, method 2 N=3 renormalized"
+
       - name: LOS / NLOS split (geometric)
         run: |
           for v in 0 60 120; do
@@ -75,4 +95,6 @@ jobs:
             doppler_comparison*.csv
             nmse_sweep_*.csv
             nmse_sweep_*.png
+            symbol_sweep_*.csv
+            symbol_sweep_*.png
             los_split_*.md

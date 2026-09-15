@@ -104,13 +104,19 @@ CMat method1_per_path_doppler(const rt::Result& r, const rt::Grid& g,
 
 CMat method2_dominant_doppler(const rt::Result& r, const rt::Grid& g,
                               const Params& p) {
-  // dominant N개 path만 채널에 포함 (나머지 path는 제외), 각각 doppler 적용
+  // dominant N개 path만 채널에 포함 (나머지 path는 제외), 각각 doppler 적용.
+  // renorm_dominant이면 포함한 path 전력 합이 1이 되도록 키운다.
   return build_channel(r, g, p, [&](const std::vector<rt::Path>& in,
                                     std::vector<rt::Path>* paths,
                                     std::vector<double>* fd) {
+    double kept = 0.0;
     for (size_t i : dominant_indices(in, p.num_dominant)) {
       paths->push_back(in[i]);
       fd->push_back(doppler_shift_hz(in[i].aoa_deg, p));
+      kept += in[i].power;
+    }
+    if (p.renorm_dominant && kept > 0.0) {
+      for (rt::Path& path : *paths) path.power /= kept;
     }
   });
 }
@@ -129,6 +135,36 @@ CMat method3_post_fd_doppler(const rt::Result& r, const rt::Grid& g,
   std::complex<double> rot = phasor(2.0 * kPi * fd * p.time_s);
   for (std::complex<double>& v : h) v *= rot;
   return h;
+}
+
+RsrpError rsrp_error(const CMat& ref, const CMat& x, const rt::Result& r,
+                     const Params& p, uint32_t sc_begin, uint32_t sc_len) {
+  RsrpError e{0.0, 0.0};
+  size_t num_pairs = static_cast<size_t>(r.num_bs_ant) * r.num_ue_ant;
+  for (size_t pair = 0; pair < num_pairs; ++pair) {
+    size_t base = pair * p.num_sc + sc_begin;
+    double pr = 0.0, px = 0.0;
+    for (uint32_t k = 0; k < sc_len; ++k) {
+      pr += std::norm(ref[base + k]);
+      px += std::norm(x[base + k]);
+    }
+    double err_db = std::abs(10.0 * std::log10(px / pr));
+    e.mean_abs_db += err_db;
+    if (err_db > e.max_abs_db) e.max_abs_db = err_db;
+  }
+  e.mean_abs_db /= static_cast<double>(num_pairs);
+  return e;
+}
+
+RsrpError rsrp_error_wideband(const CMat& ref, const CMat& x, const rt::Result& r,
+                              const Params& p) {
+  return rsrp_error(ref, x, r, p, 0, p.num_sc);
+}
+
+RsrpError rsrp_error_band(const CMat& ref, const CMat& x, const rt::Result& r,
+                          const Params& p) {
+  uint32_t len = std::min(p.rsrp_band_sc, p.num_sc);
+  return rsrp_error(ref, x, r, p, (p.num_sc - len) / 2, len);
 }
 
 double nmse(const CMat& ref, const CMat& x) {

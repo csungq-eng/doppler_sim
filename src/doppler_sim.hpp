@@ -26,7 +26,7 @@ namespace sim {
 struct Params {
   // OFDM 파라미터
   double fc_hz = 3.5e9;    // center frequency
-  double scs_hz = 15e3;    // subcarrier spacing
+  double scs_hz = 30e3;    // subcarrier spacing (3276 SC = 273 RB @ 30 kHz, 100 MHz)
   uint32_t num_sc = 3276;  // subcarrier 수
 
   // 단말 이동성
@@ -34,8 +34,16 @@ struct Params {
   double move_dir_deg = 45.0;     // 이동 방향 (azimuth) [도]
   double time_s = 1e-3;           // 채널 snapshot 시각 [초]
 
-  // 방식 2: doppler를 적용할 dominant path 수
+  // 방식 2: 채널에 포함할 dominant path 수
   uint32_t num_dominant = 3;
+  // 방식 2: 포함한 path의 전력 합이 1이 되도록 재정규화 (RSRP bias 제거용)
+  bool renorm_dominant = false;
+
+  // RSRP 측정 대역 (대역 중앙의 subcarrier 수). 기본 240 = SSB 20 RB
+  uint32_t rsrp_band_sc = 240;
+
+  // OFDM 심볼 길이 [초] (normal CP, 2048+144 샘플 기준). --time-symbols 환산용
+  double symbol_duration_s() const { return (2048.0 + 144.0) / (2048.0 * scs_hz); }
 
   // 방식 3: 기지국/grid 위치 (grid는 row-major 정사각 배치로 가정).
   // Python SimulationConfig의 geometric 파라미터 기본값과 같아야 한다.
@@ -68,5 +76,19 @@ CMat method3_post_fd_doppler(const rt::Result& r, const rt::Grid& g,
 
 // NMSE = ||x - ref||^2 / ||ref||^2
 double nmse(const CMat& ref, const CMat& x);
+
+// RSRP 오차: (bs, ue) pair마다 subcarrier 구간 [sc_begin, sc_begin + sc_len)의
+// 평균 |H|^2를 RSRP로 보고, 10*log10(RSRP_x / RSRP_ref)의 절댓값을 pair 평균/최대로 요약.
+struct RsrpError {
+  double mean_abs_db;  // pair 평균 |오차| [dB]
+  double max_abs_db;   // 최악 pair |오차| [dB]
+};
+RsrpError rsrp_error(const CMat& ref, const CMat& x, const rt::Result& r,
+                     const Params& p, uint32_t sc_begin, uint32_t sc_len);
+// 전대역 / 대역 중앙 rsrp_band_sc 구간에 대한 편의 함수
+RsrpError rsrp_error_wideband(const CMat& ref, const CMat& x, const rt::Result& r,
+                              const Params& p);
+RsrpError rsrp_error_band(const CMat& ref, const CMat& x, const rt::Result& r,
+                          const Params& p);
 
 }  // namespace sim

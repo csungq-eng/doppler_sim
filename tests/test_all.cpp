@@ -154,6 +154,79 @@ void test_los_angle_points_from_grid_to_bs() {
         "LOS 각도는 grid->기지국 방향 (도래각 규약)");
 }
 
+void test_rsrp_error_metric() {
+  // 1x1 안테나, 지연이 충분히 떨어진 path 2개 (cross term이 대역 평균에서 사라짐)
+  std::vector<rt::Path> paths = {
+      {0, 0.7, 30.0, 0.0, 300e-9},
+      {1, 0.3, -100.0, 0.0, 900e-9},
+  };
+  rt::Result r = make_single_pair_result(paths);
+  sim::Params p;
+  p.num_sc = 1024;
+  p.rsrp_band_sc = 64;
+  sim::CMat h1 = sim::method1_per_path_doppler(r, r.grids[0], p);
+
+  sim::RsrpError same = sim::rsrp_error_wideband(h1, h1, r, p);
+  CHECK(same.mean_abs_db == 0.0 && same.max_abs_db == 0.0,
+        "RSRP 오차: 같은 채널이면 0 dB");
+
+  sim::CMat twice = h1;
+  for (auto& v : twice) v *= std::sqrt(2.0);
+  sim::RsrpError up = sim::rsrp_error_wideband(h1, twice, r, p);
+  CHECK(std::abs(up.mean_abs_db - 10.0 * std::log10(2.0)) < 1e-9,
+        "RSRP 오차: 전력 2배면 3.01 dB");
+
+  // 대역 중앙 64 SC만 2배로 키우면 협대역 오차는 3 dB, 전대역 오차는 그보다 작다
+  sim::CMat center = h1;
+  uint32_t b = (p.num_sc - p.rsrp_band_sc) / 2;
+  for (uint32_t k = b; k < b + p.rsrp_band_sc; ++k) center[k] *= std::sqrt(2.0);
+  sim::RsrpError band = sim::rsrp_error_band(h1, center, r, p);
+  sim::RsrpError wide = sim::rsrp_error_wideband(h1, center, r, p);
+  CHECK(std::abs(band.mean_abs_db - 10.0 * std::log10(2.0)) < 1e-9 &&
+            wide.mean_abs_db < 0.5,
+        "RSRP 오차: 협대역 구간은 대역 중앙 rsrp_band_sc개 SC를 본다");
+
+  // 방식 3은 전역 위상만 다르므로 어느 t에서도 RSRP 오차가 0
+  p.time_s = 5e-3;
+  h1 = sim::method1_per_path_doppler(r, r.grids[0], p);
+  sim::CMat h3 = sim::method3_post_fd_doppler(r, r.grids[0], p);
+  sim::CMat h0 = sim::method3_post_fd_doppler(r, r.grids[0], [&] {
+    sim::Params q = p; q.time_s = 0.0; return q; }());
+  double d = 0.0;
+  for (size_t i = 0; i < h3.size(); ++i) d = std::max(d, std::abs(std::abs(h3[i]) - std::abs(h0[i])));
+  CHECK(d < 1e-12, "방식 3의 |H|는 t와 무관 (전역 위상 회전뿐)");
+}
+
+void test_method2_renorm_restores_total_power() {
+  // 지연이 멀리 떨어진 path 3개: 전대역 RSRP ~= 전력 합. N=1이면 0.6 -> -2.2 dB,
+  // 재정규화하면 1.0 -> 0 dB 근처.
+  std::vector<rt::Path> paths = {
+      {0, 0.6, 10.0, 0.0, 200e-9},
+      {1, 0.25, 90.0, 0.0, 700e-9},
+      {2, 0.15, -120.0, 0.0, 1400e-9},
+  };
+  rt::Result r = make_single_pair_result(paths);
+  sim::Params p;
+  p.num_sc = 2048;
+  p.num_dominant = 1;
+  sim::CMat h1 = sim::method1_per_path_doppler(r, r.grids[0], p);
+  sim::RsrpError plain =
+      sim::rsrp_error_wideband(h1, sim::method2_dominant_doppler(r, r.grids[0], p), r, p);
+  p.renorm_dominant = true;
+  sim::RsrpError renorm =
+      sim::rsrp_error_wideband(h1, sim::method2_dominant_doppler(r, r.grids[0], p), r, p);
+  CHECK(std::abs(plain.mean_abs_db - 10.0 * std::log10(1.0 / 0.6)) < 0.2,
+        "방식 2 N=1 전대역 RSRP 오차 ~= 버린 전력 (-2.2 dB)");
+  CHECK(renorm.mean_abs_db < 0.2, "방식 2 재정규화 후 전대역 RSRP 오차 ~ 0 dB");
+}
+
+void test_symbol_duration() {
+  sim::Params p;
+  p.scs_hz = 30e3;
+  CHECK(std::abs(p.symbol_duration_s() - 35.68e-6) < 0.05e-6,
+        "30 kHz SCS 심볼 길이 = 35.7 us (normal CP)");
+}
+
 void test_all_methods_equal_at_t0() {
   std::vector<rt::Path> paths = {
       {0, 0.5, 20.0, 0.0, 350e-9},
@@ -206,6 +279,9 @@ int main(int argc, char** argv) {
   test_method3_equals_method1_for_single_los_path();
   test_los_angle_points_from_grid_to_bs();
   test_all_methods_equal_at_t0();
+  test_rsrp_error_metric();
+  test_method2_renorm_restores_total_power();
+  test_symbol_duration();
 
   if (argc > 1) {
     std::printf("-- 로더 검증: %s (per-pair)\n", argv[1]);
