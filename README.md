@@ -53,6 +53,7 @@ PoC_Channel/
 │  └─ raytracing.py           #   구조체 정의 + random/geometric 생성 + 저장/로드
 ├─ generate_raytracing.py     # [Python] 실행 스크립트
 ├─ plot_sweep.py              # [Python] N sweep 곡선 그림
+├─ plot_symbol_sweep.py       # [Python] 심볼 index sweep 곡선 (NMSE + RSRP 오차)
 ├─ summarize_los_split.py     # [Python] sweep 결과를 LOS/NLOS grid로 나눈 표
 ├─ test_raytracing.py         # [Python] binary 파일 검증 테스트 (2 시나리오 x 2 모드)
 ├─ src/                       # [C++] Doppler PoC
@@ -228,8 +229,8 @@ geometric 전용 (좌표 [m]):
 이동 방향·속도를 갖는 단말 하나가 각 grid에 위치할 때, 해당 grid의 채널에
 Doppler 효과를 적용해 **주파수 도메인 채널 행렬 H (64 × 4 × 3276)** 를 생성한다.
 
-- OFDM: center frequency 3.5 GHz, SCS 15 kHz, subcarrier 3276개
-- 단말 이동성: 속도(km/h)·방향(azimuth, 도)·snapshot 시각 t 설정 가능
+- OFDM: center frequency 3.5 GHz, SCS 30 kHz(3276 SC = 273 RB, 100 MHz), T_sym ≈ 35.7 µs
+- 단말 이동성: 속도(km/h)·방향(azimuth, 도)·snapshot 시각 t(ms 또는 OFDM 심볼 수) 설정 가능
 
 ## 세 가지 방식
 
@@ -250,7 +251,15 @@ subcarrier 주파수: `f_k = (k − N_SC/2)·SCS` (baseband, 센터 기준)
 방식 3을 위해 기지국 위치(기본 원점)와 grid 배치(기본 10×10, 간격 10 m,
 원점 (50, −45))를 `sim::Params`로 정의한다.
 
-비교 지표는 방식 1 대비 NMSE: `‖H_x − H₁‖² / ‖H₁‖²` (grid별 + 평균/최대, dB).
+비교 지표 두 가지 (모두 방식 1 기준):
+
+| 지표 | 정의 | 의미 |
+|---|---|---|
+| **NMSE** | `‖H_x − H₁‖² / ‖H₁‖²` (grid별, dB) | 위상까지 포함한 채널 오차. 복조·프리코딩 관점 |
+| **RSRP 오차** | (bs, ue) pair마다 subcarrier 평균 `|H|²`를 RSRP로 보고 `|10·log10(RSRP_x / RSRP₁)|`의 pair 평균/최대 [dB] | 전력만 보는 오차. 전대역(3276 SC)과 협대역(대역 중앙 `--rsrp-band-sc`개, 기본 240 = SSB 20 RB) 두 가지 |
+
+방식 2에는 `--renorm-dominant` 옵션이 있어 포함한 dominant path의 전력 합을 1로
+재정규화할 수 있다 (버린 path 전력만큼의 RSRP bias 제거용; NMSE 비교의 기본값은 off).
 
 ## 빌드 및 실행
 
@@ -268,17 +277,24 @@ cmake --build build -j
     --speed-kmh 60 --direction-deg 45 --time-ms 1 --num-dominant 3
 ```
 
-옵션: `--speed-kmh`(기본 60) `--direction-deg`(기본 45) `--time-ms`(기본 1)
-`--num-dominant`(기본 3) `--out-csv`(기본 doppler_comparison.csv)
-`--sweep-max <n>`(N=1..n sweep 모드, 요약 `nmse_sweep.csv` + grid별 `nmse_sweep_grid.csv`
-출력(`--out-csv`로 이름 지정 가능) → `python plot_sweep.py [csv] [png] [부제목]`으로 곡선
-생성, `python summarize_los_split.py <grid csv> <config.json>`으로 LOS/NLOS grid 분리 표 생성)
+옵션: `--speed-kmh`(기본 60) `--direction-deg`(기본 45) `--time-ms`(기본 1) 또는
+`--time-symbols <k>`(t = k·T_sym) `--scs-khz`(기본 30) `--num-dominant`(기본 3)
+`--renorm-dominant` `--rsrp-band-sc`(기본 240) `--out-csv`(기본 doppler_comparison.csv)
+
+세 가지 실행 모드:
+- 기본: 단일 t에서 grid별 NMSE + RSRP 오차 → `doppler_comparison.csv`
+- `--sweep-max <n>`: N=1..n sweep, 요약 `nmse_sweep.csv` + grid별 `nmse_sweep_grid.csv`
+  → `python plot_sweep.py [csv] [png] [부제목]` 곡선, `python summarize_los_split.py <grid csv> <config.json>` LOS/NLOS 분리 표
+- `--symbol-list <a,b,..>`: 심볼 index마다 t = k·T_sym로 방식 2/3의 NMSE·RSRP 오차 시간 진행
+  → `symbol_sweep.csv`, `python plot_symbol_sweep.py [csv] [png] [부제목]` 두 패널 곡선
 
 결과는 콘솔 요약(처음 10개 grid + 평균/최대)과 grid별 CSV로 출력된다.
 **전체 실행 방법은 [docs/USAGE.md](docs/USAGE.md) 참조** (CI 실행·artifact 다운로드 포함).
-**비교 결과와 해석은 [docs/RESULTS.md](docs/RESULTS.md) 참조** — 결론: 방식 3은
-오차가 심볼 index에 비례해 누적되고 페이딩을 재현하지 못해 정지 채널 외에는 부적합,
-방식 2(dominant N ≥ 3)는 t·속도·LOS 여부에 무관하게 예측 가능.
+**비교 결과와 해석은 [docs/RESULTS.md](docs/RESULTS.md) 참조** — 결론: 위상까지 보는
+NMSE 기준으로 방식 3은 오차가 심볼 index에 비례해 누적되고 페이딩을 재현하지 못해 정지
+채널 외에는 부적합, 방식 2(dominant N ≥ 3)는 t·속도·LOS 여부에 무관하게 예측 가능.
+전력만 보는 RSRP 기준으로는 방식 3의 전대역 오차가 10 ms 뒤에도 0.7 dB로 작아 평균
+전력 용도에는 충분하며, 방식 2는 버린 path만큼의 고정 bias(재정규화로 제거 가능)를 갖는다.
 
 ## CI (GitHub Actions)
 
@@ -288,6 +304,7 @@ C++ 단위 테스트(Python이 만든 binary를 C++ 로더로 읽는 cross-langu
 geometric LOS AoA 규약 일치 검증 포함) → PoC 실행(random `doppler_comparison.csv`,
 geometric `doppler_comparison_geo.csv`) → 속도 0/60/120 km/h N sweep 및 곡선
 생성(random `nmse_sweep_v*.csv/png`, geometric `nmse_sweep_geo_v*.csv/png`) →
+geometric 심볼 sweep(60/120 km/h + 재정규화 1회, `symbol_sweep_geo_*.csv/png`) →
 geometric LOS/NLOS 분리 표(`los_split_geo_v*.md`) → 결과 전체를 `doppler-results`
 artifact로 업로드.
 
@@ -299,6 +316,9 @@ artifact로 업로드.
 - LOS 단일 path이면 방식 3 == 방식 1
 - LOS 각도가 grid→기지국 방향(도래각 규약)
 - t = 0이면 세 방식 모두 동일
+- RSRP 오차: 같은 채널 0 dB, 전력 2배 3.01 dB, 협대역 창이 대역 중앙, 방식 3의 |H|는 t 무관
+- 방식 2 재정규화 후 전대역 RSRP 오차 ≈ 0 (재정규화 전에는 버린 전력만큼)
+- 30 kHz SCS 심볼 길이 = 35.7 µs
 - 로더: Python이 생성한 binary의 mode/안테나 수/grid 수/전력 합 검증
 - geometric binary의 LOS AoA가 C++ `los_angle_deg`와 일치 (Python/C++ 규약 동일)
 
