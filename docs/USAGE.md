@@ -27,11 +27,13 @@ CI 수행 순서:
    geometric → `doppler_comparison_geo.csv`
 6. N sweep 실행 — 속도 0 / 60 / 120 km/h 각각 N=1..16, 두 데이터 모두
    → `nmse_sweep_v{0,60,120}.csv`(random), `nmse_sweep_geo_v{0,60,120}.csv`(geometric),
-   각각 grid별 원자료 `*_grid.csv`
+   각각 grid별 원자료 `*_grid.csv`. geometric 60 km/h는 방식 2 전력 재정규화 버전도
+   실행 → `nmse_sweep_geo_v60_renorm.csv`
 7. sweep 곡선 그림 생성 (같은 이름의 `.png`)
 8. 심볼 sweep (geometric, 60/120 km/h, k = 0,1,2,4,7,14,28,56,140,280 심볼; 방식 2 N=3,
    재정규화 버전 1회 추가) → `symbol_sweep_geo_v{60,120}.csv/png`, `symbol_sweep_geo_v60_renorm.csv/png`
-9. geometric 결과를 LOS grid / NLOS grid로 나눈 표 (`los_split_geo_v{0,60,120}.md`)
+9. geometric 결과를 LOS grid / NLOS grid로 나눈 표 — NMSE와 RSRP 오차(전대역/협대역)
+   (`los_split_geo_v{0,60,120}.md`)
 10. 위 결과를 `doppler-results` artifact로 업로드
 
 ### 2. 파라미터 변경
@@ -144,6 +146,18 @@ geometric 데이터라면 grid별 파일을 LOS grid / NLOS grid로 나눠 볼 �
 python summarize_los_split.py nmse_sweep_geo_v60_grid.csv output_geo_per_pair/config.json [out.md]
 ```
 
+출력은 표 세 개입니다: N별 NMSE, RSRP 오차 전대역, RSRP 오차 협대역 — 각각
+전체 / LOS grid / NLOS grid 열. 방식 3은 N과 무관하므로 마지막 행에 참고로 붙습니다.
+
+방식 2의 RSRP bias를 없앤 버전을 보려면 `--renorm-dominant`를 붙여 sweep을 한 번 더
+돌립니다 (CI도 geometric 60 km/h에 대해 같은 실행을 합니다):
+
+```bash
+./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
+    --speed-kmh 60 --direction-deg 45 --time-ms 1 --sweep-max 16 --renorm-dominant \
+    --out-csv nmse_sweep_geo_v60_renorm.csv
+```
+
 ### 6. 심볼 sweep (시간 진행에 따른 오차)
 
 "grid가 바뀌지 않는 한 같은 CIR에 매 심볼 Doppler를 반영"하는 실제 사용 방식에서
@@ -188,7 +202,7 @@ python plot_sweep.py nmse_sweep_v120.csv nmse_sweep_v120.png "UE speed 120 km/h"
 | `nmse_sweep.csv` (CI: `nmse_sweep_v<속도>.csv`, `nmse_sweep_geo_v<속도>.csv`) | N별 방식 2 요약. 열: n_dominant, mean_nmse2, mean_nmse2_db, max_nmse2_db, mean_nmse3_db(참고, N 무관), max_nmse3_db, rsrp_wide_err2_db, rsrp_wide_err3_db, rsrp_band_err2_db, rsrp_band_err3_db |
 | `nmse_sweep_grid.csv` (CI: `nmse_sweep_*_grid.csv`) | sweep의 grid별 원자료. 열: grid_id, n_dominant, nmse2, nmse3 (선형), rsrp_wide_err2_db, rsrp_wide_err3_db, rsrp_band_err2_db, rsrp_band_err3_db |
 | `nmse_sweep.png` (CI: 위 CSV와 같은 이름의 `.png`) | 방식 2 NMSE vs N 곡선 (평균 실선, 최악 grid 점선, 방식 3 평균 기준선) |
-| `los_split_geo_v<속도>.md` (CI) | geometric 데이터의 N별·방식 3 평균 NMSE를 전체/LOS/NLOS grid로 나눈 표 |
+| `los_split_geo_v<속도>.md` (CI) | geometric 데이터의 N별·방식 3 평균 NMSE와 RSRP 오차(전대역/협대역)를 전체/LOS/NLOS grid로 나눈 표 |
 | `symbol_sweep.csv` (CI: `symbol_sweep_geo_v<속도>[_renorm].csv`) | 심볼 index별 결과. 열: symbol, t_ms, nmse2_db, nmse3_db, max_nmse2_db, max_nmse3_db, rsrp_wide_err2_db, rsrp_wide_err3_db, rsrp_band_err2_db, rsrp_band_err3_db, rsrp_wide_max2_db, rsrp_wide_max3_db, rsrp_band_max2_db, rsrp_band_max3_db (grid 평균; max는 최악 pair) |
 | `symbol_sweep.png` | 위 CSV의 두 패널 곡선 |
 

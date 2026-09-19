@@ -284,7 +284,8 @@ cmake --build build -j
 세 가지 실행 모드:
 - 기본: 단일 t에서 grid별 NMSE + RSRP 오차 → `doppler_comparison.csv`
 - `--sweep-max <n>`: N=1..n sweep, 요약 `nmse_sweep.csv` + grid별 `nmse_sweep_grid.csv`
-  → `python plot_sweep.py [csv] [png] [부제목]` 곡선, `python summarize_los_split.py <grid csv> <config.json>` LOS/NLOS 분리 표
+  (NMSE와 RSRP 오차 모두 N별로 기록) → `python plot_sweep.py [csv] [png] [부제목]` 곡선,
+  `python summarize_los_split.py <grid csv> <config.json>` LOS/NLOS 분리 표(NMSE + RSRP)
 - `--symbol-list <a,b,..>`: 심볼 index마다 t = k·T_sym로 방식 2/3의 NMSE·RSRP 오차 시간 진행
   → `symbol_sweep.csv`, `python plot_symbol_sweep.py [csv] [png] [부제목]` 두 패널 곡선
 

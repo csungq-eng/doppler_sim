@@ -51,6 +51,9 @@ jobs:
               --speed-kmh $v --direction-deg 45 --time-ms 1 --sweep-max 16 \
               --out-csv nmse_sweep_geo_v${v}.csv
           done
+          ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
+            --speed-kmh 60 --direction-deg 45 --time-ms 1 --sweep-max 16 --renorm-dominant \
+            --out-csv nmse_sweep_geo_v60_renorm.csv
 
       - name: Plot sweep curves
         run: |
