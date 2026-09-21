@@ -30,8 +30,9 @@ CI 수행 순서:
    각각 grid별 원자료 `*_grid.csv`. geometric 60 km/h는 방식 2 전력 재정규화 버전도
    실행 → `nmse_sweep_geo_v60_renorm.csv`
 7. sweep 곡선 그림 생성 (같은 이름의 `.png`)
-8. 심볼 sweep (geometric, 60/120 km/h, k = 0,1,2,4,7,10,14,28,56,140,280 심볼; 방식 2 N=3,
-   재정규화 버전 1회 추가) → `symbol_sweep_geo_v{60,120}.csv/png`, `symbol_sweep_geo_v60_renorm.csv/png`
+8. 심볼 sweep (geometric, 5/30/60/120 km/h, k = 0,1,2,4,7,10,14,28,56,140,280 심볼; 방식 2 N=3,
+   60 km/h 재정규화 버전 1회 추가) → `symbol_sweep_geo_v{5,30,60,120}.csv`, 두 패널 그림은
+   `symbol_sweep_geo_v{60,120}.png`, `symbol_sweep_geo_v60_renorm.csv/png`
    이어서 협대역 RSRP 오차 그림 두 개 (`rsrp_band_method3_vs_symbol.png`, `rsrp_band_method2_vs_paths.png`)
 9. geometric 결과를 LOS grid / NLOS grid로 나눈 표 — NMSE와 RSRP 오차(전대역/협대역)
    (`los_split_geo_v{0,60,120}.md`)
@@ -186,16 +187,18 @@ k = 0은 세 방식이 정확히 같아 NMSE = −∞이므로 NMSE 패널에서
 
 ```bash
 python plot_rsrp_figures.py \
-    --symbol-csv symbol_sweep_geo_v60.csv:60,symbol_sweep_geo_v120.csv:120 \
+    --symbol-csv symbol_sweep_geo_v5.csv:5,symbol_sweep_geo_v30.csv:30,symbol_sweep_geo_v60.csv:60 \
     --symbols 1,2,4,7,10,14,28,56,140,280 \
     --sweep-csv nmse_sweep_geo_v60.csv \
     --remap 16:12,12:8,8:6,6:4,4:2,2:1
 ```
 
+5/30 km/h 심볼 sweep CSV는 6절 명령에서 `--speed-kmh`만 5, 30으로 바꿔 만든다.
+
 | 출력 | 내용 |
 |---|---|
-| `rsrp_band_method3_vs_symbol.png` | 방식 3: 심볼 지연 k vs 협대역 RSRP 평균 오차 (속도별 선). `--symbols`의 k는 모두 심볼 sweep CSV에 있어야 한다 |
-| `rsrp_band_method2_vs_paths.png` | 방식 2: path 수 vs 협대역 RSRP 평균 오차. `--remap "원래N:표시값,..."`으로 x축만 바꾼다 (y는 원래 N의 측정값). 눈금에 원래 N을 병기 |
+| `rsrp_band_method3_vs_symbol.png` | 방식 3: 심볼 지연 k vs 협대역 RSRP 평균 오차. `--symbol-csv`의 속도마다 다른 색의 선(최대 4개, 선 끝에 속도·값 라벨). `--symbols`의 k는 모두 심볼 sweep CSV에 있어야 한다 |
+| `rsrp_band_method2_vs_paths.png` | 방식 2: path 수 N vs 협대역 RSRP 평균 오차. `--remap "원래N:표시값,..."`으로 x축만 바꾼다 (y는 원래 N의 측정값). 그림에는 재매핑된 값만 N으로 표시 |
 
 옵션 `--out-a`, `--out-b`로 출력 파일 이름을 바꿀 수 있다.
 
