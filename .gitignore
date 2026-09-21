@@ -16,6 +16,7 @@ nmse_sweep*.png
 los_split_*.md
 symbol_sweep*.csv
 symbol_sweep*.png
+rsrp_band_*.png
 
 # C++ 빌드
 build/

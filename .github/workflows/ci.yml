@@ -67,12 +67,12 @@ jobs:
           for v in 60 120; do
             ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
               --speed-kmh $v --direction-deg 45 --num-dominant 3 \
-              --symbol-list 0,1,2,4,7,14,28,56,140,280 \
+              --symbol-list 0,1,2,4,7,10,14,28,56,140,280 \
               --out-csv symbol_sweep_geo_v${v}.csv
           done
           ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
             --speed-kmh 60 --direction-deg 45 --num-dominant 3 --renorm-dominant \
-            --symbol-list 0,1,2,4,7,14,28,56,140,280 \
+            --symbol-list 0,1,2,4,7,10,14,28,56,140,280 \
             --out-csv symbol_sweep_geo_v60_renorm.csv
 
       - name: Plot symbol sweep
@@ -81,6 +81,10 @@ jobs:
             python plot_symbol_sweep.py symbol_sweep_geo_v${v}.csv symbol_sweep_geo_v${v}.png "geometric data, UE speed ${v} km/h, method 2 N=3"
           done
           python plot_symbol_sweep.py symbol_sweep_geo_v60_renorm.csv symbol_sweep_geo_v60_renorm.png "geometric data, UE speed 60 km/h, method 2 N=3 renormalized"
+
+      - name: Plot narrowband RSRP figures (method 3 vs symbol delay, method 2 vs path count)
+        run: |
+          python plot_rsrp_figures.py \n            --symbol-csv symbol_sweep_geo_v60.csv:60,symbol_sweep_geo_v120.csv:120 \n            --symbols 1,2,4,7,10,14,28,56,140,280 \n            --sweep-csv nmse_sweep_geo_v60.csv \n            --remap 16:12,12:8,8:6,6:4,4:2,2:1
 
       - name: LOS / NLOS split (geometric)
         run: |
@@ -100,4 +104,5 @@ jobs:
             nmse_sweep_*.png
             symbol_sweep_*.csv
             symbol_sweep_*.png
+            rsrp_band_*.png
             los_split_*.md
