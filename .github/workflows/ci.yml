@@ -84,7 +84,11 @@ jobs:
 
       - name: Plot narrowband RSRP figures (method 3 vs symbol delay, method 2 vs path count)
         run: |
-          python plot_rsrp_figures.py \n            --symbol-csv symbol_sweep_geo_v60.csv:60,symbol_sweep_geo_v120.csv:120 \n            --symbols 1,2,4,7,10,14,28,56,140,280 \n            --sweep-csv nmse_sweep_geo_v60.csv \n            --remap 16:12,12:8,8:6,6:4,4:2,2:1
+          python plot_rsrp_figures.py \
+            --symbol-csv symbol_sweep_geo_v60.csv:60,symbol_sweep_geo_v120.csv:120 \
+            --symbols 1,2,4,7,10,14,28,56,140,280 \
+            --sweep-csv nmse_sweep_geo_v60.csv \
+            --remap 16:12,12:8,8:6,6:4,4:2,2:1
 
       - name: LOS / NLOS split (geometric)
         run: |
