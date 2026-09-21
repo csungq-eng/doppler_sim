@@ -54,6 +54,7 @@ PoC_Channel/
 ├─ generate_raytracing.py     # [Python] 실행 스크립트
 ├─ plot_sweep.py              # [Python] N sweep 곡선 그림
 ├─ plot_symbol_sweep.py       # [Python] 심볼 index sweep 곡선 (NMSE + RSRP 오차)
+├─ plot_rsrp_figures.py       # [Python] 협대역 RSRP 오차 그림 (방식 3 vs 심볼 지연, 방식 2 vs path 수)
 ├─ summarize_los_split.py     # [Python] sweep 결과를 LOS/NLOS grid로 나눈 표
 ├─ test_raytracing.py         # [Python] binary 파일 검증 테스트 (2 시나리오 x 2 모드)
 ├─ src/                       # [C++] Doppler PoC
