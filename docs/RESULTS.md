@@ -368,11 +368,11 @@ python summarize_los_split.py nmse_sweep_geo_v120_grid.csv \
 # 3절: 심볼 index sweep (NMSE + RSRP 오차, 방식 2 N=3)
 ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
     --speed-kmh 60 --direction-deg 45 --num-dominant 3 \
-    --symbol-list 0,1,2,4,7,14,28,56,140,280 --out-csv symbol_sweep_geo_v60.csv
+    --symbol-list 0,1,2,4,7,10,14,28,56,140,280 --out-csv symbol_sweep_geo_v60.csv
 python plot_symbol_sweep.py symbol_sweep_geo_v60.csv symbol_sweep_geo_v60.png \
     "geometric data, UE speed 60 km/h, method 2 N=3"
 # 방식 2 전력 재정규화 버전
 ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
     --speed-kmh 60 --direction-deg 45 --num-dominant 3 --renorm-dominant \
-    --symbol-list 0,1,2,4,7,14,28,56,140,280 --out-csv symbol_sweep_geo_v60_renorm.csv
+    --symbol-list 0,1,2,4,7,10,14,28,56,140,280 --out-csv symbol_sweep_geo_v60_renorm.csv
 ```

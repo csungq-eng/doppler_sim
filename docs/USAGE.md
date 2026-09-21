@@ -168,13 +168,13 @@ k번째 심볼의 오차를 본다. t = k·T_sym 로 두고 방식 2(N 고정)/�
 ```bash
 ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
     --speed-kmh 60 --direction-deg 45 --num-dominant 3 \
-    --symbol-list 0,1,2,4,7,14,28,56,140,280 --out-csv symbol_sweep_geo_v60.csv
+    --symbol-list 0,1,2,4,7,10,14,28,56,140,280 --out-csv symbol_sweep_geo_v60.csv
 python plot_symbol_sweep.py symbol_sweep_geo_v60.csv symbol_sweep_geo_v60.png "geometric, 60 km/h"
 
 # 방식 2 전력 재정규화 버전 (RSRP bias 비교용)
 ./build/poc_doppler --binary output_geo_per_pair/raytracing_result.bin \
     --speed-kmh 60 --num-dominant 3 --renorm-dominant \
-    --symbol-list 0,1,2,4,7,14,28,56,140,280 --out-csv symbol_sweep_geo_v60_renorm.csv
+    --symbol-list 0,1,2,4,7,10,14,28,56,140,280 --out-csv symbol_sweep_geo_v60_renorm.csv
 ```
 
 그림은 두 패널: 왼쪽 NMSE vs k(로그축), 오른쪽 RSRP |오차| vs k (전대역 실선, 협대역 점선).
