@@ -109,4 +109,5 @@ jobs:
             symbol_sweep_*.csv
             symbol_sweep_*.png
             rsrp_band_*.png
+            method2_vs_paths.csv
             los_split_*.md

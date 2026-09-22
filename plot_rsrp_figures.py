@@ -18,6 +18,9 @@
                   x 위치만 바꾼다 (실제 관찰 지역의 path 수가 더 적은 것을 반영하기 위함).
                   그림에는 재매핑된 값만 N으로 표시한다.
     --out-b       rsrp_band_method2_vs_paths.png
+    --out-b-csv   method2_vs_paths.csv
+                  그림 B의 원자료: N sweep의 모든 N(1~최대)에 대한 방식 2의 NMSE와
+                  협대역 RSRP 오차 (재매핑 전 N 기준, 100 grid 평균)
 
 요구 사항: matplotlib
 """
@@ -51,8 +54,11 @@ def style(ax):
 
 
 def parse_pairs(text):
-    """'a:b,c:d' -> [(a, b), (c, d)] (문자열)."""
-    return [tuple(item.split(":", 1)) for item in text.split(",") if item]
+    """'a:b,c:d' -> [(a, b), (c, d)] (문자열).
+
+    마지막 ':'로 나누므로 'C:/dir/x.csv:60' 같은 Windows 경로도 된다.
+    """
+    return [tuple(item.rsplit(":", 1)) for item in text.split(",") if item]
 
 
 def figure_a(symbol_csvs, symbols, out_png):
@@ -99,6 +105,23 @@ def figure_a(symbol_csvs, symbols, out_png):
     print(f"저장: {out_png}")
 
 
+def write_method2_table(sweep_csv, out_csv):
+    """N sweep CSV에서 방식 2의 N별 NMSE와 협대역 RSRP 오차만 뽑아 저장한다.
+
+    모든 N(재매핑 전)을 그대로 쓴다. N이 최대 path 수에 도달하면 방식 2 == 방식 1이라
+    NMSE가 수치 오차 수준(-300 dB대)이 되는데, 이 값도 그대로 기록한다.
+    """
+    rows = list(csv.DictReader(open(sweep_csv, encoding="utf-8")))
+    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["n_paths", "nmse_linear", "nmse_db", "rsrp_ssb_err_db"])
+        for r in rows:
+            w.writerow([int(r["n_dominant"]), f"{float(r['mean_nmse2']):.6g}",
+                        f"{float(r['mean_nmse2_db']):.4f}",
+                        f"{float(r['rsrp_band_err2_db']):.4f}"])
+    print(f"저장: {out_csv}")
+
+
 def figure_b(sweep_csv, remap, out_png):
     rows = {int(r["n_dominant"]): float(r["rsrp_band_err2_db"])
             for r in csv.DictReader(open(sweep_csv, encoding="utf-8"))}
@@ -140,11 +163,13 @@ def main():
     ap.add_argument("--sweep-csv", default="nmse_sweep_geo_v60.csv")
     ap.add_argument("--remap", default="16:12,12:8,8:6,6:4,4:2,2:1")
     ap.add_argument("--out-b", default="rsrp_band_method2_vs_paths.png")
+    ap.add_argument("--out-b-csv", default="method2_vs_paths.csv")
     args = ap.parse_args()
 
     figure_a(parse_pairs(args.symbol_csv), [int(k) for k in args.symbols.split(",")],
              args.out_a)
     figure_b(args.sweep_csv, parse_pairs(args.remap), args.out_b)
+    write_method2_table(args.sweep_csv, args.out_b_csv)
 
 
 if __name__ == "__main__":

@@ -199,6 +199,7 @@ python plot_rsrp_figures.py \
 |---|---|
 | `rsrp_band_method3_vs_symbol.png` | 방식 3: 심볼 지연 k vs 협대역 RSRP 평균 오차. `--symbol-csv`의 속도마다 다른 색의 선(최대 4개, 선 끝에 속도·값 라벨). `--symbols`의 k는 모두 심볼 sweep CSV에 있어야 한다 |
 | `rsrp_band_method2_vs_paths.png` | 방식 2: path 수 N vs 협대역 RSRP 평균 오차. `--remap "원래N:표시값,..."`으로 x축만 바꾼다 (y는 원래 N의 측정값). 그림에는 재매핑된 값만 N으로 표시 |
+| `method2_vs_paths.csv` (`--out-b-csv`) | 그림 B의 원자료. N sweep의 모든 N(재매핑 전)에 대한 방식 2 결과. 열: n_paths, nmse_linear, nmse_db, rsrp_ssb_err_db (100 grid 평균) |
 
 옵션 `--out-a`, `--out-b`로 출력 파일 이름을 바꿀 수 있다.
 

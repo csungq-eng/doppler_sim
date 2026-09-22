@@ -5,18 +5,20 @@
 __pycache__/
 *.pyc
 
-# 생성 결과물
-output/
-output_per_pair/
-output_geo/
-output_geo_per_pair/
-doppler_comparison*.csv
-nmse_sweep*.csv
-nmse_sweep*.png
-los_split_*.md
-symbol_sweep*.csv
-symbol_sweep*.png
-rsrp_band_*.png
+# 생성 결과물 (저장소 루트에 생기는 것만 무시한다. 앞의 / 가 없으면 docs/img에
+# 복사해 둔 같은 이름의 결과 파일까지 무시되어 커밋되지 않는다)
+/output/
+/output_per_pair/
+/output_geo/
+/output_geo_per_pair/
+/doppler_comparison*.csv
+/nmse_sweep*.csv
+/nmse_sweep*.png
+/los_split_*.md
+/symbol_sweep*.csv
+/symbol_sweep*.png
+/rsrp_band_*.png
+/method2_vs_paths.csv
 
 # C++ 빌드
 build/
