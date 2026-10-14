@@ -19,6 +19,7 @@ __pycache__/
 /symbol_sweep*.png
 /rsrp_band_*.png
 /method2_vs_paths.csv
+/method2_vs_paths.png
 
 # C++ 빌드
 build/

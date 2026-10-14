@@ -22,6 +22,9 @@
                   그림 B의 원자료: N sweep의 모든 N(1~최대)에 대한 방식 2의 NMSE와
                   협대역 RSRP 오차 (재매핑 전 N 기준, 100 grid 평균)
 
+그림 C — 방식 2: 위 CSV를 재매핑 없이 그대로 (왼쪽 NMSE, 오른쪽 협대역 RSRP 오차)
+    --out-c       method2_vs_paths.png
+
 요구 사항: matplotlib
 """
 
@@ -122,6 +125,58 @@ def write_method2_table(sweep_csv, out_csv):
     print(f"저장: {out_csv}")
 
 
+def figure_c(table_csv, out_png):
+    """그림 C — method2_vs_paths.csv를 재매핑 없이 그대로 그린다 (N = 1..최대).
+
+    왼쪽 NMSE, 오른쪽 협대역 RSRP 오차. N이 최대 path 수면 방식 2 == 방식 1이라
+    NMSE가 -300 dB대로 떨어져 축을 망가뜨리므로 그 점만 빼고 주석으로 표기한다.
+    """
+    rows = list(csv.DictReader(open(table_csv, encoding="utf-8")))
+    ns = [int(r["n_paths"]) for r in rows]
+    nmse = [float(r["nmse_db"]) for r in rows]
+    rsrp = [float(r["rsrp_ssb_err_db"]) for r in rows]
+    exact = [n for n, v in zip(ns, nmse) if v < -100.0]
+    keep = [(n, v) for n, v in zip(ns, nmse) if v >= -100.0]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5), dpi=150)
+    fig.patch.set_facecolor(SURFACE)
+
+    style(ax1)
+    ax1.plot([t[0] for t in keep], [t[1] for t in keep], color=BLUE, linewidth=2,
+             marker="o", markersize=5)
+    ax1.set_xticks(ns)
+    ax1.set_xlabel("Number of dominant paths N", color=INK)
+    ax1.set_ylabel("NMSE vs Method 1 [dB]", color=INK)
+    ax1.set_title("Phase-sensitive: NMSE", color=INK, fontsize=11)
+    for i in (0, len(keep) - 1):
+        ax1.annotate(f"{keep[i][1]:.1f} dB", keep[i], textcoords="offset points",
+                     xytext=(0, -14), ha="center", fontsize=9, color=INK)
+    if exact:
+        ax1.annotate(f"N = {', '.join(map(str, exact))}: exact match (all paths included)",
+                     (0.5, 0.04), xycoords="axes fraction", ha="center", fontsize=9,
+                     color=MUTED)
+
+    style(ax2)
+    ax2.plot(ns, rsrp, color=BLUE, linewidth=2, marker="o", markersize=5)
+    ax2.set_xticks(ns)
+    ax2.set_ylim(bottom=0, top=max(rsrp) * 1.15)
+    ax2.set_xlabel("Number of dominant paths N", color=INK)
+    ax2.set_ylabel("SSB-band RSRP error, mean |ΔRSRP| [dB]", color=INK)
+    ax2.set_title("Power only: narrowband (SSB) RSRP error", color=INK, fontsize=11)
+    for i, (n, v) in enumerate(zip(ns, rsrp)):
+        if n in (ns[0], 3, 5, 9) or n == ns[-1]:
+            ax2.annotate(f"{v:.2f}", (n, v), textcoords="offset points", xytext=(6, 6),
+                         ha="left", fontsize=9, color=INK)
+
+    fig.suptitle("Method 2 (dominant-N paths, per-path Doppler) vs Method 1, by number of paths N\n"
+                 "geometric (ray-tracing-like) data, 100 grids, SSB = 240 SC (7.2 MHz); "
+                 "simulated N, no x-axis remapping",
+                 color=INK, fontsize=12)
+    fig.tight_layout()
+    fig.savefig(out_png, facecolor=SURFACE)
+    print(f"저장: {out_png}")
+
+
 def figure_b(sweep_csv, remap, out_png):
     rows = {int(r["n_dominant"]): float(r["rsrp_band_err2_db"])
             for r in csv.DictReader(open(sweep_csv, encoding="utf-8"))}
@@ -164,12 +219,14 @@ def main():
     ap.add_argument("--remap", default="16:12,12:8,8:6,6:4,4:2,2:1")
     ap.add_argument("--out-b", default="rsrp_band_method2_vs_paths.png")
     ap.add_argument("--out-b-csv", default="method2_vs_paths.csv")
+    ap.add_argument("--out-c", default="method2_vs_paths.png")
     args = ap.parse_args()
 
     figure_a(parse_pairs(args.symbol_csv), [int(k) for k in args.symbols.split(",")],
              args.out_a)
     figure_b(args.sweep_csv, parse_pairs(args.remap), args.out_b)
     write_method2_table(args.sweep_csv, args.out_b_csv)
+    figure_c(args.out_b_csv, args.out_c)
 
 
 if __name__ == "__main__":
